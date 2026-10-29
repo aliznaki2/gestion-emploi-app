@@ -1,0 +1,183 @@
+/* ── About Section ── */
+.about-section {
+  padding: 100px 0;
+  background: white;
+  position: relative;
+  overflow: hidden;
+}
+.about-section::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gray-200), transparent);
+}
+
+.about__inner {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 70px;
+  align-items: center;
+}
+
+/* ── Photo side ── */
+.about__visual {
+  position: relative;
+}
+.about__accent-block {
+  position: absolute;
+  bottom: -20px;
+  left: -20px;
+  width: 180px;
+  height: 180px;
+  background: linear-gradient(135deg, var(--primary-glow) 0%, rgba(26,95,168,0.05) 100%);
+  border-radius: var(--radius-lg);
+  z-index: 0;
+}
+.about__photo-frame {
+  position: relative;
+  z-index: 1;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  box-shadow: var(--shadow-xl);
+  aspect-ratio: 4/3;
+}
+.about__photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform var(--transition-slow);
+}
+.about__photo-frame:hover .about__photo { transform: scale(1.03); }
+
+.about__badge {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255,255,255,0.95);
+  backdrop-filter: blur(12px);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid rgba(255,255,255,0.8);
+  animation: fadeInUp 0.5s ease 0.3s both;
+}
+.about__badge-logo {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.about__badge-title {
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: var(--primary);
+  letter-spacing: -0.01em;
+}
+.about__badge-sub {
+  font-size: 0.65rem;
+  color: var(--gray-500);
+  line-height: 1.3;
+}
+
+/* ── Text side ── */
+.about__title-accent { color: var(--primary); }
+
+.about__text {
+  font-size: 0.96rem;
+  color: var(--gray-500);
+  line-height: 1.78;
+  margin-bottom: 16px;
+}
+.about__text strong { color: var(--gray-700); font-weight: 600; }
+
+/* ── Highlights ── */
+.about__highlights {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 28px 0;
+}
+.about__highlight {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--gray-50);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--gray-100);
+  transition: all var(--transition);
+}
+.about__highlight:hover {
+  background: var(--primary-glow);
+  border-color: rgba(26,95,168,0.15);
+  transform: translateX(4px);
+}
+.about__highlight-icon {
+  width: 44px;
+  height: 44px;
+  background: white;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+  box-shadow: var(--shadow-sm);
+  flex-shrink: 0;
+  border: 1px solid var(--gray-200);
+}
+.about__highlight-label {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--gray-800);
+  margin-bottom: 2px;
+}
+.about__highlight-desc {
+  font-size: 0.78rem;
+  color: var(--gray-400);
+}
+
+/* ── Source ── */
+.about__source {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--gray-400);
+  padding: 10px 14px;
+  background: var(--gray-50);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--gray-100);
+}
+.about__source svg { flex-shrink: 0; color: var(--gray-300); }
+.about__source-link {
+  color: var(--primary);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color var(--transition);
+}
+.about__source-link:hover { color: var(--primary-dark); }
+
+/* ── Animation ── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+  .about__inner { grid-template-columns: 1fr; gap: 50px; }
+  .about__visual { max-width: 540px; margin: 0 auto; width: 100%; }
+  .about__content { text-align: left; }
+}
+@media (max-width: 640px) {
+  .about-section { padding: 70px 0; }
+  .about__highlight { padding: 12px 14px; }
+}
