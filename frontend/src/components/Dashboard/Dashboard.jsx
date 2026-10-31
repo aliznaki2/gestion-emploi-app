@@ -514,6 +514,530 @@ function SelectModifyModal({ seances, groupes, onClose, onSelectSeance }) {
   )
 }
 
+// ─── Modal Créer / Modifier Groupe ───────────────────────────────────────────
+function GroupeModal({ groupe, filieres, onClose, onSave }) {
+  const isEdit = Boolean(groupe?.id)
+  const [code, setCode] = useState(groupe?.code || '')
+  const [filiereId, setFiliereId] = useState(groupe?.filiere_id || (filieres?.[0]?.id || ''))
+  const [anneeEtude, setAnneeEtude] = useState(groupe?.annee_etude || 1)
+  const [effectif, setEffectif] = useState(groupe?.effectif ?? 25)
+  const [regime, setRegime] = useState(groupe?.regime || 'CDJ')
+  const [modeFormation, setModeFormation] = useState(groupe?.mode_formation || 'Résidentiel')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!filiereId && filieres.length > 0) {
+      setFiliereId(filieres[0].id)
+    }
+  }, [filieres, filiereId])
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault()
+    if (!code.trim()) {
+      setError('Veuillez saisir le code du groupe (ex: DEV105, ID201)')
+      return
+    }
+    if (!filiereId) {
+      setError('Veuillez sélectionner une filière')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+    try {
+      const payload = {
+        code: code.trim().toUpperCase(),
+        filiere_id: +filiereId,
+        annee_etude: +anneeEtude,
+        effectif: +effectif,
+        regime,
+        mode_formation: modeFormation,
+      }
+
+      let res
+      if (isEdit) {
+        res = await apiFetch(`${API}/groupes/${groupe.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload)
+        })
+      } else {
+        res = await apiFetch(`${API}/groupes`, {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        })
+      }
+      onSave(res, isEdit)
+    } catch (err) {
+      setError(err.message || 'Une erreur est survenue')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 18, color: '#0f2d5e' }}>
+            {isEdit ? `Modifier le groupe ${groupe.code}` : 'Ajouter un Nouveau Groupe'}
+          </h3>
+          <button
+            onClick={onClose}
+            type="button"
+            style={{ fontSize: 20, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}
+          >
+            
+          </button>
+        </div>
+
+        {error && (
+          <div className="alert-banner error" style={{ marginBottom: 16 }}>
+            <span>{error}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit}>
+          <div className="modal-field">
+            <label>Code du Groupe * (ex: DEV101, ID201, TSM101)</label>
+            <input
+              type="text"
+              placeholder="Ex: DEV105"
+              value={code}
+              onChange={e => setCode(e.target.value.toUpperCase())}
+              required
+              autoFocus
+            />
+          </div>
+
+          <div className="modal-field">
+            <label>Filière *</label>
+            <select value={filiereId} onChange={e => setFiliereId(e.target.value)} required>
+              {filieres.map(f => (
+                <option key={f.id} value={f.id}>
+                  {f.intitule} ({f.code})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div className="modal-field">
+              <label>Année d'étude</label>
+              <select value={anneeEtude} onChange={e => setAnneeEtude(e.target.value)}>
+                <option value={1}>1ère Année</option>
+                <option value={2}>2ème Année</option>
+                <option value={3}>3ème Année</option>
+              </select>
+            </div>
+
+            <div className="modal-field">
+              <label>Effectif (stagiaires)</label>
+              <input
+                type="number"
+                min="1"
+                max="100"
+                value={effectif}
+                onChange={e => setEffectif(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div className="modal-field">
+              <label>Régime</label>
+              <select value={regime} onChange={e => setRegime(e.target.value)}>
+                <option value="CDJ">CDJ (Cours de Jour)</option>
+                <option value="CDS">CDS (Cours du Soir)</option>
+              </select>
+            </div>
+
+            <div className="modal-field">
+              <label>Mode de formation</label>
+              <select value={modeFormation} onChange={e => setModeFormation(e.target.value)}>
+                <option value="Résidentiel">Résidentiel</option>
+                <option value="Alterné">Alterné</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="modal-actions" style={{ marginTop: 24 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
+              Annuler
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={loading}>
+              {loading ? 'Enregistrement…' : (isEdit ? 'Enregistrer les modifications' : 'Créer le groupe')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal Confirmation Suppression Groupe ──────────────────────────────────
+function DeleteGroupeModal({ groupe, onClose, onConfirm, loading }) {
+  if (!groupe) return null
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
+        <h3 style={{ margin: 0, fontSize: 18, color: '#dc2626', display: 'flex', alignItems: 'center', gap: 8 }}>
+          Confirmer la suppression
+        </h3>
+        <p style={{ margin: '16px 0 8px', fontSize: 14, color: '#334155', lineHeight: 1.5 }}>
+          Êtes-vous sûr de vouloir supprimer le groupe <strong>{formatGroupeDisplay(groupe.code)}</strong> ({groupe.filiere_nom || groupe.filiere_code}) ?
+        </p>
+        <p style={{ margin: '0 0 20px', fontSize: 12, color: '#64748b', background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', lineHeight: 1.4 }}>
+          S'il existe des séances enregistrées pour ce groupe, il sera archivé en toute sécurité sans altérer l'historique de l'emploi du temps.
+        </p>
+        <div className="modal-actions">
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
+            Annuler
+          </button>
+          <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={loading}>
+            {loading ? 'Suppression…' : 'Oui, supprimer'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal Créer / Modifier Formateur ─────────────────────────────────────────
+function ProfesseurModal({ prof, onClose, onSave }) {
+  const isEdit = Boolean(prof?.id)
+  const [nomComplet, setNomComplet] = useState(prof?.nom_complet || '')
+  const [matricule, setMatricule] = useState(prof?.matricule || '')
+  const [email, setEmail] = useState(prof?.email || '')
+  const [statut, setStatut] = useState(prof?.statut || 'permanent')
+  const [tauxPresence, setTauxPresence] = useState(prof?.taux_presence ?? 100)
+  const [heuresMax, setHeuresMax] = useState(prof?.heures_max_semaine || '')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault()
+    if (!nomComplet.trim()) {
+      setError('Veuillez saisir le nom complet du formateur')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+    try {
+      const payload = {
+        nom_complet: nomComplet.trim().toUpperCase(),
+        matricule: matricule.trim(),
+        email: email.trim(),
+        statut,
+        taux_presence: +tauxPresence,
+        heures_max_semaine: heuresMax ? +heuresMax : null,
+      }
+
+      let res
+      if (isEdit) {
+        res = await apiFetch(`${API}/professeurs/${prof.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload)
+        })
+      } else {
+        res = await apiFetch(`${API}/professeurs`, {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        })
+      }
+      onSave(res, isEdit)
+    } catch (err) {
+      setError(err.message || 'Une erreur est survenue')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 18, color: '#0f2d5e' }}>
+            {isEdit ? `Modifier le Formateur` : 'Ajouter un Formateur'}
+          </h3>
+          <button
+            onClick={onClose}
+            type="button"
+            style={{ fontSize: 20, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}
+          >
+            
+          </button>
+        </div>
+
+        {error && (
+          <div className="alert-banner error" style={{ marginBottom: 16 }}>
+            <span>{error}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit}>
+          <div className="modal-field">
+            <label>Nom Complet du Formateur *</label>
+            <input
+              type="text"
+              placeholder="Ex: MOHAMMED BENALI"
+              value={nomComplet}
+              onChange={e => setNomComplet(e.target.value.toUpperCase())}
+              required
+              autoFocus
+            />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div className="modal-field">
+              <label>Matricule (optionnel, auto si vide)</label>
+              <input
+                type="text"
+                placeholder="Ex: 10452"
+                value={matricule}
+                onChange={e => setMatricule(e.target.value)}
+              />
+            </div>
+
+            <div className="modal-field">
+              <label>Statut</label>
+              <select value={statut} onChange={e => setStatut(e.target.value)}>
+                <option value="permanent">Permanent</option>
+                <option value="vacataire">Vacataire</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="modal-field">
+            <label>Email professionnel</label>
+            <input
+              type="email"
+              placeholder="Ex: m.benali@ofppt.ma"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+            />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div className="modal-field">
+              <label>Taux de Présence (%)</label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={tauxPresence}
+                onChange={e => setTauxPresence(e.target.value)}
+              />
+            </div>
+
+            <div className="modal-field">
+              <label>Heures max / semaine</label>
+              <input
+                type="number"
+                placeholder="Ex: 20 (optionnel)"
+                value={heuresMax}
+                onChange={e => setHeuresMax(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="modal-actions" style={{ marginTop: 24 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
+              Annuler
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={loading}>
+              {loading ? 'Enregistrement…' : (isEdit ? 'Enregistrer les modifications' : 'Créer le formateur')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal Confirmation Suppression Formateur ────────────────────────────────
+function DeleteProfesseurModal({ prof, onClose, onConfirm, loading }) {
+  if (!prof) return null
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
+        <h3 style={{ margin: 0, fontSize: 18, color: '#dc2626', display: 'flex', alignItems: 'center', gap: 8 }}>
+          Confirmer la suppression
+        </h3>
+        <p style={{ margin: '16px 0 8px', fontSize: 14, color: '#334155', lineHeight: 1.5 }}>
+          Êtes-vous sûr de vouloir supprimer le formateur <strong>{prof.nom_complet}</strong> (Mle: {prof.matricule || '—'}) ?
+        </p>
+        <p style={{ margin: '0 0 20px', fontSize: 12, color: '#64748b', background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', lineHeight: 1.4 }}>
+          S'il a déjà des séances planifiées dans les emplois du temps, il sera désactivé en toute sécurité pour préserver l'historique pédagogique.
+        </p>
+        <div className="modal-actions">
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
+            Annuler
+          </button>
+          <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={loading}>
+            {loading ? 'Suppression…' : 'Oui, supprimer'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal Créer / Modifier Salle ─────────────────────────────────────────────
+function SalleModal({ salle, typesSalles, onClose, onSave }) {
+  const isEdit = Boolean(salle?.id)
+  const [nom, setNom] = useState(salle?.nom || '')
+  const [typeSalleId, setTypeSalleId] = useState(salle?.type_salle_id || (typesSalles?.[0]?.id || ''))
+  const [capacite, setCapacite] = useState(salle?.capacite ?? 30)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!typeSalleId && typesSalles?.length > 0) {
+      setTypeSalleId(typesSalles[0].id)
+    }
+  }, [typesSalles, typeSalleId])
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault()
+    if (!nom.trim()) {
+      setError('Veuillez renseigner le nom de la salle (ex: SC12, SP5, LABO1)')
+      return
+    }
+    if (!typeSalleId) {
+      setError('Veuillez sélectionner un type de salle')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+    try {
+      const payload = {
+        nom: nom.trim().toUpperCase(),
+        type_salle_id: +typeSalleId,
+        capacite: +capacite,
+      }
+
+      let res
+      if (isEdit) {
+        res = await apiFetch(`${API}/salles/${salle.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload)
+        })
+      } else {
+        res = await apiFetch(`${API}/salles`, {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        })
+      }
+      onSave(res, isEdit)
+    } catch (err) {
+      setError(err.message || 'Une erreur est survenue')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 18, color: '#0f2d5e' }}>
+            {isEdit ? `Modifier la Salle ${salle.nom}` : 'Ajouter une Salle'}
+          </h3>
+          <button
+            onClick={onClose}
+            type="button"
+            style={{ fontSize: 20, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}
+          >
+            
+          </button>
+        </div>
+
+        {error && (
+          <div className="alert-banner error" style={{ marginBottom: 16 }}>
+            <span>{error}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit}>
+          <div className="modal-field">
+            <label>Nom ou Numéro de la Salle * (ex: SC1, SP3, LABO2)</label>
+            <input
+              type="text"
+              placeholder="Ex: SC12"
+              value={nom}
+              onChange={e => setNom(e.target.value.toUpperCase())}
+              required
+              autoFocus
+            />
+          </div>
+
+          <div className="modal-field">
+            <label>Type de Salle *</label>
+            <select value={typeSalleId} onChange={e => setTypeSalleId(e.target.value)} required>
+              {typesSalles?.map(t => (
+                <option key={t.id} value={t.id}>
+                  {t.libelle} ({t.code})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="modal-field">
+            <label>Capacité (nombre de places)</label>
+            <input
+              type="number"
+              min="1"
+              max="200"
+              value={capacite}
+              onChange={e => setCapacite(e.target.value)}
+            />
+          </div>
+
+          <div className="modal-actions" style={{ marginTop: 24 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
+              Annuler
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={loading}>
+              {loading ? 'Enregistrement…' : (isEdit ? 'Enregistrer les modifications' : 'Créer la salle')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal Confirmation Suppression Salle ────────────────────────────────────
+function DeleteSalleModal({ salle, onClose, onConfirm, loading }) {
+  if (!salle) return null
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
+        <h3 style={{ margin: 0, fontSize: 18, color: '#dc2626', display: 'flex', alignItems: 'center', gap: 8 }}>
+          Confirmer la suppression
+        </h3>
+        <p style={{ margin: '16px 0 8px', fontSize: 14, color: '#334155', lineHeight: 1.5 }}>
+          Êtes-vous sûr de vouloir supprimer la salle <strong>{salle.nom}</strong> ({salle.type_libelle || salle.type_code}) ?
+        </p>
+        <p style={{ margin: '0 0 20px', fontSize: 12, color: '#64748b', background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', lineHeight: 1.4 }}>
+          Si des séances passées ou planifiées utilisent cette salle, elle sera archivée en toute sécurité.
+        </p>
+        <div className="modal-actions">
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
+            Annuler
+          </button>
+          <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={loading}>
+            {loading ? 'Suppression…' : 'Oui, supprimer'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 export default function Dashboard({ role = 'admin', onLogout }) {
   const [activeNav, setActiveNav] = useState('emploi')
@@ -523,20 +1047,48 @@ export default function Dashboard({ role = 'admin', onLogout }) {
   const [groupes, setGroupes] = useState([])
   const [professeurs, setProfesseurs] = useState([])
   const [salles, setSalles] = useState([])
+  const [typesSalles, setTypesSalles] = useState([])
   const [creneaux, setCreneaux] = useState([])
   const [unites, setUnites] = useState([])
+  const [filieres, setFilieres] = useState([])
   const [stats, setStats] = useState(null)
 
   // Filters
   const [selectedSectionFilter, setSelectedSectionFilter] = useState('all')
   const [searchGroupe, setSearchGroupe] = useState('')
 
-  // State flags
+  // State flags & Modals
   const [loadingSeances, setLoadingSeances] = useState(false)
   const [loadingGen, setLoadingGen] = useState(false)
   const [editSeance, setEditSeance] = useState(null)
   const [openSelectModify, setOpenSelectModify] = useState(false)
   const [addPrefill, setAddPrefill] = useState(null)
+
+  // Groupe CRUD Modals & Filters
+  const [groupeModalOpen, setGroupeModalOpen] = useState(false)
+  const [editingGroupe, setEditingGroupe] = useState(null)
+  const [deletingGroupe, setDeletingGroupe] = useState(null)
+  const [deletingLoading, setDeletingLoading] = useState(false)
+  const [groupeSearch, setGroupeSearch] = useState('')
+  const [groupeFiliereFilter, setGroupeFiliereFilter] = useState('all')
+  const [groupeAnneeFilter, setGroupeAnneeFilter] = useState('all')
+
+  // Formateur CRUD Modals & Filters
+  const [profModalOpen, setProfModalOpen] = useState(false)
+  const [editingProf, setEditingProf] = useState(null)
+  const [deletingProf, setDeletingProf] = useState(null)
+  const [deletingProfLoading, setDeletingProfLoading] = useState(false)
+  const [profSearch, setProfSearch] = useState('')
+  const [profStatutFilter, setProfStatutFilter] = useState('all')
+
+  // Salle CRUD Modals & Filters
+  const [salleModalOpen, setSalleModalOpen] = useState(false)
+  const [editingSalle, setEditingSalle] = useState(null)
+  const [deletingSalle, setDeletingSalle] = useState(null)
+  const [deletingSalleLoading, setDeletingSalleLoading] = useState(false)
+  const [salleSearch, setSalleSearch] = useState('')
+  const [salleTypeFilter, setSalleTypeFilter] = useState('all')
+
   const [toasts, setToasts] = useState([])
   const [dbStatus, setDbStatus] = useState(null)
 
@@ -550,13 +1102,15 @@ export default function Dashboard({ role = 'admin', onLogout }) {
   useEffect(() => {
     const init = async () => {
       try {
-        const [sw, g, p, sl, cr, u, hc] = await Promise.all([
+        const [sw, g, p, sl, cr, u, f, ts, hc] = await Promise.all([
           apiFetch(`${API}/semaines`),
           apiFetch(`${API}/groupes`),
           apiFetch(`${API}/professeurs`),
           apiFetch(`${API}/salles`),
           apiFetch(`${API}/creneaux`),
           apiFetch(`${API}/unites`).catch(() => []),
+          apiFetch(`${API}/filieres`).catch(() => []),
+          apiFetch(`${API}/types-salles`).catch(() => []),
           apiFetch(`${API}/health`),
         ])
         setSemaines(sw)
@@ -565,6 +1119,8 @@ export default function Dashboard({ role = 'admin', onLogout }) {
         setSalles(sl)
         setCreneaux(cr)
         setUnites(u)
+        setFilieres(f)
+        setTypesSalles(ts)
         setDbStatus(hc.status)
         if (sw.length > 0) setSelectedSemaine(sw[0])
       } catch (e) {
@@ -678,6 +1234,140 @@ export default function Dashboard({ role = 'admin', onLogout }) {
       creneauId: creneaux[0]?.id,
     })
   }
+
+  // Groupe CRUD handlers
+  const handleSaveGroupe = (savedGroupe, isEdit) => {
+    if (isEdit) {
+      setGroupes(prev => prev.map(g => g.id === savedGroupe.id ? savedGroupe : g))
+      addToast(`Groupe ${savedGroupe.code} modifié avec succès`, 'success')
+    } else {
+      setGroupes(prev => [...prev, savedGroupe].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true })))
+      addToast(`Groupe ${savedGroupe.code} créé avec succès`, 'success')
+    }
+    setGroupeModalOpen(false)
+    setEditingGroupe(null)
+  }
+
+  const handleDeleteGroupeConfirm = async () => {
+    if (!deletingGroupe) return
+    setDeletingLoading(true)
+    try {
+      const res = await apiFetch(`${API}/groupes/${deletingGroupe.id}`, { method: 'DELETE' })
+      setGroupes(prev => prev.filter(g => g.id !== deletingGroupe.id))
+      addToast(res.message || `Groupe ${deletingGroupe.code} supprimé avec succès`, 'success')
+      setDeletingGroupe(null)
+    } catch (err) {
+      addToast(err.message || 'Erreur lors de la suppression du groupe', 'error')
+    } finally {
+      setDeletingLoading(false)
+    }
+  }
+
+  const filteredGroupesList = useMemo(() => {
+    return groupes.filter(g => {
+      const q = (groupeSearch || '').trim().toLowerCase()
+      const matchSearch = !q ||
+        (g.code && g.code.toLowerCase().includes(q)) ||
+        formatGroupeDisplay(g.code).toLowerCase().includes(q) ||
+        (g.filiere_nom && g.filiere_nom.toLowerCase().includes(q)) ||
+        (g.filiere_code && g.filiere_code.toLowerCase().includes(q))
+
+      const matchFiliere = groupeFiliereFilter === 'all' ||
+        String(g.filiere_id) === String(groupeFiliereFilter) ||
+        g.filiere_code === groupeFiliereFilter
+
+      const matchAnnee = groupeAnneeFilter === 'all' ||
+        String(g.annee_etude) === String(groupeAnneeFilter)
+
+      return matchSearch && matchFiliere && matchAnnee
+    })
+  }, [groupes, groupeSearch, groupeFiliereFilter, groupeAnneeFilter])
+
+  // Professeur CRUD handlers
+  const handleSaveProf = (savedProf, isEdit) => {
+    if (isEdit) {
+      setProfesseurs(prev => prev.map(p => p.id === savedProf.id ? savedProf : p))
+      addToast(`Formateur ${savedProf.nom_complet} modifié avec succès`, 'success')
+    } else {
+      setProfesseurs(prev => [...prev, savedProf].sort((a, b) => a.nom_complet.localeCompare(b.nom_complet)))
+      addToast(`Formateur ${savedProf.nom_complet} créé avec succès`, 'success')
+    }
+    setProfModalOpen(false)
+    setEditingProf(null)
+  }
+
+  const handleDeleteProfConfirm = async () => {
+    if (!deletingProf) return
+    setDeletingProfLoading(true)
+    try {
+      const res = await apiFetch(`${API}/professeurs/${deletingProf.id}`, { method: 'DELETE' })
+      setProfesseurs(prev => prev.filter(p => p.id !== deletingProf.id))
+      addToast(res.message || `Formateur ${deletingProf.nom_complet} supprimé avec succès`, 'success')
+      setDeletingProf(null)
+    } catch (err) {
+      addToast(err.message || 'Erreur lors de la suppression du formateur', 'error')
+    } finally {
+      setDeletingProfLoading(false)
+    }
+  }
+
+  const filteredProfsList = useMemo(() => {
+    return professeurs.filter(p => {
+      const q = (profSearch || '').trim().toLowerCase()
+      const matchSearch = !q ||
+        (p.nom_complet && p.nom_complet.toLowerCase().includes(q)) ||
+        (p.matricule && p.matricule.toLowerCase().includes(q)) ||
+        (p.email && p.email.toLowerCase().includes(q))
+
+      const matchStatut = profStatutFilter === 'all' || p.statut === profStatutFilter
+
+      return matchSearch && matchStatut
+    })
+  }, [professeurs, profSearch, profStatutFilter])
+
+  // Salle CRUD handlers
+  const handleSaveSalle = (savedSalle, isEdit) => {
+    if (isEdit) {
+      setSalles(prev => prev.map(s => s.id === savedSalle.id ? savedSalle : s))
+      addToast(`Salle ${savedSalle.nom} modifiée avec succès`, 'success')
+    } else {
+      setSalles(prev => [...prev, savedSalle].sort((a, b) => a.nom.localeCompare(b.nom, undefined, { numeric: true })))
+      addToast(`Salle ${savedSalle.nom} créée avec succès`, 'success')
+    }
+    setSalleModalOpen(false)
+    setEditingSalle(null)
+  }
+
+  const handleDeleteSalleConfirm = async () => {
+    if (!deletingSalle) return
+    setDeletingSalleLoading(true)
+    try {
+      const res = await apiFetch(`${API}/salles/${deletingSalle.id}`, { method: 'DELETE' })
+      setSalles(prev => prev.filter(s => s.id !== deletingSalle.id))
+      addToast(res.message || `Salle ${deletingSalle.nom} supprimée avec succès`, 'success')
+      setDeletingSalle(null)
+    } catch (err) {
+      addToast(err.message || 'Erreur lors de la suppression de la salle', 'error')
+    } finally {
+      setDeletingSalleLoading(false)
+    }
+  }
+
+  const filteredSallesList = useMemo(() => {
+    return salles.filter(s => {
+      const q = (salleSearch || '').trim().toLowerCase()
+      const matchSearch = !q ||
+        (s.nom && s.nom.toLowerCase().includes(q)) ||
+        (s.type_libelle && s.type_libelle.toLowerCase().includes(q)) ||
+        (s.type_code && s.type_code.toLowerCase().includes(q))
+
+      const matchType = salleTypeFilter === 'all' ||
+        String(s.type_salle_id) === String(salleTypeFilter) ||
+        s.type_code === salleTypeFilter
+
+      return matchSearch && matchType
+    })
+  }, [salles, salleSearch, salleTypeFilter])
 
   // Groupes structured by sections (DEV 1ère, DEV 2ème, ID 1ère, ID 2ème, GE, etc.)
   const groupedSections = useMemo(() => {
@@ -1207,89 +1897,812 @@ export default function Dashboard({ role = 'admin', onLogout }) {
 
           {/* ── GROUPES VIEW ── */}
           {activeNav === 'groupes' && (
-            <div style={{ background: '#fff', borderRadius: 8, padding: 24, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <h3 style={{ margin: 0, fontSize: 18, color: '#0f2d5e' }}>Liste des Groupes ({groupes.length})</h3>
-                <span style={{ fontSize: 13, color: '#64748b' }}>Effectif total : {groupes.reduce((a, g) => a + (g.effectif || 0), 0)} stagiaires</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {/* Header card */}
+              <div style={{
+                background: '#fff',
+                borderRadius: 12,
+                padding: '20px 24px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 16
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <h2 style={{ margin: 0, fontSize: 20, color: '#0f2d5e', fontWeight: 700 }}>
+                      Gestion des Groupes
+                    </h2>
+                    <span style={{
+                      background: '#eff6ff',
+                      color: '#1a5fa8',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      borderRadius: 20,
+                      border: '1px solid #bfdbfe'
+                    }}>
+                      {groupes.length} groupes
+                    </span>
+                  </div>
+                  <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+                    Effectif total : <strong>{groupes.reduce((a, g) => a + (g.effectif || 0), 0)}</strong> stagiaires • Structure pédagogique de l'établissement
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setEditingGroupe(null)
+                    setGroupeModalOpen(true)
+                  }}
+                  style={{ padding: '0 20px', height: 40, fontSize: 13, boxShadow: '0 2px 6px rgba(26,95,168,0.25)' }}
+                >
+                  + Ajouter un Groupe
+                </button>
               </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569' }}>
-                      <th style={{ padding: '12px 16px' }}>Code Affiché</th>
-                      <th style={{ padding: '12px 16px' }}>Code BDD</th>
-                      <th style={{ padding: '12px 16px' }}>Filière</th>
-                      <th style={{ padding: '12px 16px' }}>Année</th>
-                      <th style={{ padding: '12px 16px' }}>Effectif</th>
-                      <th style={{ padding: '12px 16px' }}>Mode</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {groupes.map(g => (
-                      <tr key={g.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '12px 16px', fontWeight: 700, color: '#1e3a8a' }}>{formatGroupeDisplay(g.code)}</td>
-                        <td style={{ padding: '12px 16px', color: '#64748b' }}>{g.code}</td>
-                        <td style={{ padding: '12px 16px' }}>{g.filiere_nom} ({g.filiere_code})</td>
-                        <td style={{ padding: '12px 16px' }}>{g.annee_etude}ère / ème année</td>
-                        <td style={{ padding: '12px 16px', fontWeight: 600 }}>{g.effectif}</td>
-                        <td style={{ padding: '12px 16px' }}>{g.mode_formation}</td>
-                      </tr>
+
+              {/* Filters toolbar */}
+              <div style={{
+                background: '#fff',
+                borderRadius: 12,
+                padding: '16px 20px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 14,
+                flexWrap: 'wrap'
+              }}>
+                <div style={{ flex: '1 1 240px', minWidth: 200 }}>
+                  <input
+                    type="text"
+                    placeholder="Rechercher un groupe (ex: DEV101, TSM, Full Stack...)"
+                    value={groupeSearch}
+                    onChange={e => setGroupeSearch(e.target.value)}
+                    style={{
+                      width: '100%',
+                      height: 38,
+                      padding: '0 12px',
+                      border: '1.5px solid #e2e8f0',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      outline: 'none',
+                      background: '#f8fafc'
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Filière :</label>
+                  <select
+                    value={groupeFiliereFilter}
+                    onChange={e => setGroupeFiliereFilter(e.target.value)}
+                    style={{
+                      height: 38,
+                      padding: '0 12px',
+                      border: '1.5px solid #e2e8f0',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      background: '#fff',
+                      outline: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="all">Toutes les filières</option>
+                    {filieres.map(f => (
+                      <option key={f.id} value={f.id}>{f.intitule} ({f.code})</option>
                     ))}
-                  </tbody>
-                </table>
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Année :</label>
+                  <select
+                    value={groupeAnneeFilter}
+                    onChange={e => setGroupeAnneeFilter(e.target.value)}
+                    style={{
+                      height: 38,
+                      padding: '0 12px',
+                      border: '1.5px solid #e2e8f0',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      background: '#fff',
+                      outline: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="all">Toutes les années</option>
+                    <option value="1">1ère Année</option>
+                    <option value="2">2ème Année</option>
+                    <option value="3">3ème Année</option>
+                  </select>
+                </div>
+
+                {(groupeSearch || groupeFiliereFilter !== 'all' || groupeAnneeFilter !== 'all') && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      setGroupeSearch('')
+                      setGroupeFiliereFilter('all')
+                      setGroupeAnneeFilter('all')
+                    }}
+                    style={{ height: 38, padding: '0 12px', fontSize: 12 }}
+                  >
+                    Réinitialiser les filtres
+                  </button>
+                )}
+
+                <div style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b' }}>
+                  Affichage de <strong>{filteredGroupesList.length}</strong> sur {groupes.length} groupes
+                </div>
+              </div>
+
+              {/* Table Card */}
+              <div style={{
+                background: '#fff',
+                borderRadius: 12,
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0',
+                overflow: 'hidden'
+              }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569' }}>
+                        <th style={{ padding: '14px 18px' }}>Code Affiché</th>
+                        <th style={{ padding: '14px 18px' }}>Code BDD</th>
+                        <th style={{ padding: '14px 18px' }}>Filière</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>Année</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>Effectif</th>
+                        <th style={{ padding: '14px 18px' }}>Mode</th>
+                        <th style={{ padding: '14px 18px' }}>Régime</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredGroupesList.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
+                            
+                            <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>Aucun groupe trouvé</div>
+                            <div style={{ fontSize: 13, marginTop: 4 }}>Essayez de modifier vos critères de recherche</div>
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredGroupesList.map(g => (
+                          <tr
+                            key={g.id}
+                            style={{
+                              borderBottom: '1px solid #f1f5f9',
+                              transition: 'background 0.15s'
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                          >
+                            <td style={{ padding: '14px 18px', fontWeight: 700, color: '#1e3a8a' }}>
+                              <span style={{
+                                background: '#eff6ff',
+                                color: '#1e40af',
+                                padding: '4px 10px',
+                                borderRadius: 6,
+                                border: '1px solid #bfdbfe'
+                              }}>
+                                {formatGroupeDisplay(g.code)}
+                              </span>
+                            </td>
+                            <td style={{ padding: '14px 18px', fontWeight: 600, color: '#334155' }}>
+                              {g.code}
+                            </td>
+                            <td style={{ padding: '14px 18px' }}>
+                              <div style={{ fontWeight: 600, color: '#0f172a' }}>{g.filiere_nom}</div>
+                              <div style={{ fontSize: 11, color: '#64748b' }}>{g.filiere_code}</div>
+                            </td>
+                            <td style={{ padding: '14px 18px', textAlign: 'center' }}>
+                              <span style={{
+                                background: g.annee_etude === 1 ? '#f0fdf4' : (g.annee_etude === 2 ? '#eff6ff' : '#fdf4ff'),
+                                color: g.annee_etude === 1 ? '#15803d' : (g.annee_etude === 2 ? '#1d4ed8' : '#86198f'),
+                                padding: '3px 8px',
+                                borderRadius: 6,
+                                fontSize: 12,
+                                fontWeight: 600
+                              }}>
+                                {g.annee_etude}ère / ème
+                              </span>
+                            </td>
+                            <td style={{ padding: '14px 18px', textAlign: 'center', fontWeight: 700, color: '#0f172a' }}>
+                              {g.effectif}
+                            </td>
+                            <td style={{ padding: '14px 18px', color: '#475569' }}>
+                              {g.mode_formation || 'Résidentiel'}
+                            </td>
+                            <td style={{ padding: '14px 18px', color: '#64748b', fontSize: 12 }}>
+                              <span style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>
+                                {g.regime || 'CDJ'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '14px 18px', textAlign: 'right' }}>
+                              <div style={{ display: 'inline-flex', gap: 6 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingGroupe(g)
+                                    setGroupeModalOpen(true)
+                                  }}
+                                  title="Modifier le groupe"
+                                  style={{
+                                    padding: '6px 12px',
+                                    borderRadius: 6,
+                                    border: '1px solid #bfdbfe',
+                                    background: '#eff6ff',
+                                    color: '#1d4ed8',
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    transition: 'all 0.15s'
+                                  }}
+                                  onMouseEnter={e => {
+                                    e.currentTarget.style.background = '#dbeafe'
+                                  }}
+                                  onMouseLeave={e => {
+                                    e.currentTarget.style.background = '#eff6ff'
+                                  }}
+                                >
+                                  Modifier
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingGroupe(g)}
+                                  title="Supprimer le groupe"
+                                  style={{
+                                    padding: '6px 12px',
+                                    borderRadius: 6,
+                                    border: '1px solid #fecaca',
+                                    background: '#fef2f2',
+                                    color: '#b91c1c',
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    transition: 'all 0.15s'
+                                  }}
+                                  onMouseEnter={e => {
+                                    e.currentTarget.style.background = '#fee2e2'
+                                  }}
+                                  onMouseLeave={e => {
+                                    e.currentTarget.style.background = '#fef2f2'
+                                  }}
+                                >
+                                  Supprimer
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
 
           {/* ── FORMATEURS VIEW ── */}
           {activeNav === 'profs' && (
-            <div style={{ background: '#fff', borderRadius: 8, padding: 24, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <h3 style={{ margin: 0, fontSize: 18, color: '#0f2d5e' }}>Formateurs de l'Établissement ({professeurs.length})</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {/* Header card */}
+              <div style={{
+                background: '#fff',
+                borderRadius: 12,
+                padding: '20px 24px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 16
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <h2 style={{ margin: 0, fontSize: 20, color: '#0f2d5e', fontWeight: 700 }}>
+                      Gestion des Formateurs
+                    </h2>
+                    <span style={{
+                      background: '#f0fdf4',
+                      color: '#15803d',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      borderRadius: 20,
+                      border: '1px solid #bbf7d0'
+                    }}>
+                      {professeurs.length} formateurs
+                    </span>
+                  </div>
+                  <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+                    Corps professoral de l'établissement • Gestion des affectations et disponibilités
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setEditingProf(null)
+                    setProfModalOpen(true)
+                  }}
+                  style={{ padding: '0 20px', height: 40, fontSize: 13, boxShadow: '0 2px 6px rgba(26,95,168,0.25)' }}
+                >
+                  + Ajouter un Formateur
+                </button>
               </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569' }}>
-                      <th style={{ padding: '12px 16px' }}>Nom Complet</th>
-                      <th style={{ padding: '12px 16px' }}>Nom Affiché (Tableau)</th>
-                      <th style={{ padding: '12px 16px' }}>Email</th>
-                      <th style={{ padding: '12px 16px' }}>Statut</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {professeurs.map(p => (
-                      <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '12px 16px', fontWeight: 600, color: '#0f172a' }}>{p.nom_complet}</td>
-                        <td style={{ padding: '12px 16px', fontWeight: 700, color: '#1e3a8a' }}>{formatProfDisplay([{ prof_nom: p.nom_complet }])}</td>
-                        <td style={{ padding: '12px 16px', color: '#64748b' }}>{p.email || '—'}</td>
-                        <td style={{ padding: '12px 16px' }}>
-                          <span style={{ background: '#f1f5f9', color: '#334155', padding: '3px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>
-                            Actif
-                          </span>
-                        </td>
+
+              {/* Filters toolbar */}
+              <div style={{
+                background: '#fff',
+                borderRadius: 12,
+                padding: '16px 20px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 14,
+                flexWrap: 'wrap'
+              }}>
+                <div style={{ flex: '1 1 260px', minWidth: 200 }}>
+                  <input
+                    type="text"
+                    placeholder="Rechercher un formateur (nom, matricule, email...)"
+                    value={profSearch}
+                    onChange={e => setProfSearch(e.target.value)}
+                    style={{
+                      width: '100%',
+                      height: 38,
+                      padding: '0 12px',
+                      border: '1.5px solid #e2e8f0',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      outline: 'none',
+                      background: '#f8fafc'
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Statut :</label>
+                  <select
+                    value={profStatutFilter}
+                    onChange={e => setProfStatutFilter(e.target.value)}
+                    style={{
+                      height: 38,
+                      padding: '0 12px',
+                      border: '1.5px solid #e2e8f0',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      background: '#fff',
+                      outline: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="all">Tous les statuts</option>
+                    <option value="permanent">Permanent</option>
+                    <option value="vacataire">Vacataire</option>
+                  </select>
+                </div>
+
+                {(profSearch || profStatutFilter !== 'all') && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      setProfSearch('')
+                      setProfStatutFilter('all')
+                    }}
+                    style={{ height: 38, padding: '0 12px', fontSize: 12 }}
+                  >
+                    Réinitialiser
+                  </button>
+                )}
+
+                <div style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b' }}>
+                  Affichage de <strong>{filteredProfsList.length}</strong> sur {professeurs.length} formateurs
+                </div>
+              </div>
+
+              {/* Table Card */}
+              <div style={{
+                background: '#fff',
+                borderRadius: 12,
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0',
+                overflow: 'hidden'
+              }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569' }}>
+                        <th style={{ padding: '14px 18px' }}>Nom Complet</th>
+                        <th style={{ padding: '14px 18px' }}>Nom Affiché (Emploi)</th>
+                        <th style={{ padding: '14px 18px' }}>Matricule</th>
+                        <th style={{ padding: '14px 18px' }}>Email</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>Statut</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>Présence</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'right' }}>Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {filteredProfsList.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
+                            
+                            <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>Aucun formateur trouvé</div>
+                            <div style={{ fontSize: 13, marginTop: 4 }}>Modifiez votre filtre ou terme de recherche</div>
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredProfsList.map(p => (
+                          <tr
+                            key={p.id}
+                            style={{
+                              borderBottom: '1px solid #f1f5f9',
+                              transition: 'background 0.15s'
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                          >
+                            <td style={{ padding: '14px 18px', fontWeight: 600, color: '#0f172a' }}>
+                              {p.nom_complet}
+                            </td>
+                            <td style={{ padding: '14px 18px', fontWeight: 700, color: '#1e3a8a' }}>
+                              <span style={{
+                                background: '#eff6ff',
+                                color: '#1e40af',
+                                padding: '3px 8px',
+                                borderRadius: 6,
+                                border: '1px solid #bfdbfe',
+                                fontSize: 12
+                              }}>
+                                {formatProfDisplay([{ prof_nom: p.nom_complet }])}
+                              </span>
+                            </td>
+                            <td style={{ padding: '14px 18px', color: '#64748b', fontFamily: 'monospace' }}>
+                              {p.matricule || '—'}
+                            </td>
+                            <td style={{ padding: '14px 18px', color: '#475569' }}>
+                              {p.email || '—'}
+                            </td>
+                            <td style={{ padding: '14px 18px', textAlign: 'center' }}>
+                              <span style={{
+                                background: p.statut === 'vacataire' ? '#eff6ff' : '#f0fdf4',
+                                color: p.statut === 'vacataire' ? '#1d4ed8' : '#15803d',
+                                padding: '3px 8px',
+                                borderRadius: 4,
+                                fontSize: 11,
+                                fontWeight: 600,
+                                textTransform: 'capitalize'
+                              }}>
+                                {p.statut || 'Permanent'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '14px 18px', textAlign: 'center', fontWeight: 600, color: '#334155' }}>
+                              {p.taux_presence ? `${p.taux_presence}%` : '100%'}
+                            </td>
+                            <td style={{ padding: '14px 18px', textAlign: 'right' }}>
+                              <div style={{ display: 'inline-flex', gap: 6 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingProf(p)
+                                    setProfModalOpen(true)
+                                  }}
+                                  title="Modifier le formateur"
+                                  style={{
+                                    padding: '6px 12px',
+                                    borderRadius: 6,
+                                    border: '1px solid #bfdbfe',
+                                    background: '#eff6ff',
+                                    color: '#1d4ed8',
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4
+                                  }}
+                                  onMouseEnter={e => e.currentTarget.style.background = '#dbeafe'}
+                                  onMouseLeave={e => e.currentTarget.style.background = '#eff6ff'}
+                                >
+                                  Modifier
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingProf(p)}
+                                  title="Supprimer le formateur"
+                                  style={{
+                                    padding: '6px 12px',
+                                    borderRadius: 6,
+                                    border: '1px solid #fecaca',
+                                    background: '#fef2f2',
+                                    color: '#b91c1c',
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4
+                                  }}
+                                  onMouseEnter={e => e.currentTarget.style.background = '#fee2e2'}
+                                  onMouseLeave={e => e.currentTarget.style.background = '#fef2f2'}
+                                >
+                                  Supprimer
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
 
           {/* ── SALLES VIEW ── */}
           {activeNav === 'salles' && (
-            <div style={{ background: '#fff', borderRadius: 8, padding: 24, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <h3 style={{ margin: 0, fontSize: 18, color: '#0f2d5e' }}>Salles et Locaux ({salles.length})</h3>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16 }}>
-                {salles.map(s => (
-                  <div key={s.id} style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: 16, background: '#f8fafc' }}>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: '#0f2d5e' }}>{s.nom}</div>
-                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Type: {s.type_libelle} ({s.type_code})</div>
-                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Capacité: {s.capacite || 30} places</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {/* Header card */}
+              <div style={{
+                background: '#fff',
+                borderRadius: 12,
+                padding: '20px 24px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 16
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <h2 style={{ margin: 0, fontSize: 20, color: '#0f2d5e', fontWeight: 700 }}>
+                      Gestion des Salles et Locaux
+                    </h2>
+                    <span style={{
+                      background: '#fef3c7',
+                      color: '#b45309',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      borderRadius: 20,
+                      border: '1px solid #fde68a'
+                    }}>
+                      {salles.length} salles
+                    </span>
                   </div>
-                ))}
+                  <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+                    Capacité d'accueil globale : <strong>{salles.reduce((a, s) => a + (s.capacite || 30), 0)}</strong> places • Salles de cours, spécialisées et laboratoires
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setEditingSalle(null)
+                    setSalleModalOpen(true)
+                  }}
+                  style={{ padding: '0 20px', height: 40, fontSize: 13, boxShadow: '0 2px 6px rgba(26,95,168,0.25)' }}
+                >
+                  + Ajouter une Salle
+                </button>
+              </div>
+
+              {/* Filters toolbar */}
+              <div style={{
+                background: '#fff',
+                borderRadius: 12,
+                padding: '16px 20px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 14,
+                flexWrap: 'wrap'
+              }}>
+                <div style={{ flex: '1 1 240px', minWidth: 200 }}>
+                  <input
+                    type="text"
+                    placeholder="Rechercher une salle (ex: SC1, SP2, LABO...)"
+                    value={salleSearch}
+                    onChange={e => setSalleSearch(e.target.value)}
+                    style={{
+                      width: '100%',
+                      height: 38,
+                      padding: '0 12px',
+                      border: '1.5px solid #e2e8f0',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      outline: 'none',
+                      background: '#f8fafc'
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Type de Salle :</label>
+                  <select
+                    value={salleTypeFilter}
+                    onChange={e => setSalleTypeFilter(e.target.value)}
+                    style={{
+                      height: 38,
+                      padding: '0 12px',
+                      border: '1.5px solid #e2e8f0',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      background: '#fff',
+                      outline: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="all">Tous les types</option>
+                    {typesSalles?.map(t => (
+                      <option key={t.id} value={t.id}>{t.libelle} ({t.code})</option>
+                    ))}
+                  </select>
+                </div>
+
+                {(salleSearch || salleTypeFilter !== 'all') && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      setSalleSearch('')
+                      setSalleTypeFilter('all')
+                    }}
+                    style={{ height: 38, padding: '0 12px', fontSize: 12 }}
+                  >
+                    Réinitialiser
+                  </button>
+                )}
+
+                <div style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b' }}>
+                  Affichage de <strong>{filteredSallesList.length}</strong> sur {salles.length} salles
+                </div>
+              </div>
+
+              {/* Salles Grid of Cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
+                {filteredSallesList.length === 0 ? (
+                  <div style={{ gridColumn: '1 / -1', background: '#fff', borderRadius: 12, padding: 48, textAlign: 'center', color: '#94a3b8', border: '1px solid #e2e8f0' }}>
+                    
+                    <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>Aucune salle trouvée</div>
+                    <div style={{ fontSize: 13, marginTop: 4 }}>Modifiez votre filtre ou terme de recherche</div>
+                  </div>
+                ) : (
+                  filteredSallesList.map(s => {
+                    const isLabo = s.type_code === 'LABO'
+                    const isSP = s.type_code === 'SP'
+                    const badgeBg = isLabo ? '#fdf4ff' : (isSP ? '#eff6ff' : '#f0fdf4')
+                    const badgeColor = isLabo ? '#86198f' : (isSP ? '#1d4ed8' : '#15803d')
+
+                    return (
+                      <div
+                        key={s.id}
+                        style={{
+                          background: '#fff',
+                          borderRadius: 12,
+                          border: '1px solid #e2e8f0',
+                          padding: 18,
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'space-between',
+                          gap: 14,
+                          transition: 'transform 0.15s, box-shadow 0.15s'
+                        }}
+                        onMouseEnter={e => {
+                          e.currentTarget.style.transform = 'translateY(-2px)'
+                          e.currentTarget.style.boxShadow = '0 6px 14px rgba(0,0,0,0.08)'
+                        }}
+                        onMouseLeave={e => {
+                          e.currentTarget.style.transform = 'translateY(0)'
+                          e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)'
+                        }}
+                      >
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              
+                              <div>
+                                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#0f2d5e' }}>{s.nom}</h3>
+                                <span style={{ fontSize: 12, color: '#64748b' }}>Salle {s.nom}</span>
+                              </div>
+                            </div>
+                            <span style={{
+                              background: badgeBg,
+                              color: badgeColor,
+                              padding: '3px 8px',
+                              borderRadius: 6,
+                              fontSize: 11,
+                              fontWeight: 700
+                            }}>
+                              {s.type_code}
+                            </span>
+                          </div>
+
+                          <div style={{ marginTop: 14, background: '#f8fafc', padding: 10, borderRadius: 8, fontSize: 12, color: '#475569', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Type : <strong>{s.type_libelle}</strong></span>
+                            <span>Capacité : <strong>{s.capacite || 30} pl.</strong></span>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, borderTop: '1px solid #f1f5f9', paddingTop: 12 }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingSalle(s)
+                              setSalleModalOpen(true)
+                            }}
+                            title="Modifier la salle"
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: 6,
+                              border: '1px solid #bfdbfe',
+                              background: '#eff6ff',
+                              color: '#1d4ed8',
+                              fontSize: 12,
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.background = '#dbeafe'}
+                            onMouseLeave={e => e.currentTarget.style.background = '#eff6ff'}
+                          >
+                            Modifier
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeletingSalle(s)}
+                            title="Supprimer la salle"
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: 6,
+                              border: '1px solid #fecaca',
+                              background: '#fef2f2',
+                              color: '#b91c1c',
+                              fontSize: 12,
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.background = '#fee2e2'}
+                            onMouseLeave={e => e.currentTarget.style.background = '#fef2f2'}
+                          >
+                            Supprimer
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
               </div>
             </div>
           )}
@@ -1338,6 +2751,68 @@ export default function Dashboard({ role = 'admin', onLogout }) {
           groupes={groupes}
           onClose={() => setOpenSelectModify(false)}
           onSelectSeance={s => setEditSeance(s)}
+        />
+      )}
+
+      {groupeModalOpen && (
+        <GroupeModal
+          groupe={editingGroupe}
+          filieres={filieres}
+          onClose={() => {
+            setGroupeModalOpen(false)
+            setEditingGroupe(null)
+          }}
+          onSave={handleSaveGroupe}
+        />
+      )}
+
+      {deletingGroupe && (
+        <DeleteGroupeModal
+          groupe={deletingGroupe}
+          loading={deletingLoading}
+          onClose={() => setDeletingGroupe(null)}
+          onConfirm={handleDeleteGroupeConfirm}
+        />
+      )}
+
+      {profModalOpen && (
+        <ProfesseurModal
+          prof={editingProf}
+          onClose={() => {
+            setProfModalOpen(false)
+            setEditingProf(null)
+          }}
+          onSave={handleSaveProf}
+        />
+      )}
+
+      {deletingProf && (
+        <DeleteProfesseurModal
+          prof={deletingProf}
+          loading={deletingProfLoading}
+          onClose={() => setDeletingProf(null)}
+          onConfirm={handleDeleteProfConfirm}
+        />
+      )}
+
+      {salleModalOpen && (
+        <SalleModal
+          salle={editingSalle}
+          typesSalles={typesSalles}
+          onClose={() => {
+            setSalleModalOpen(false)
+            setEditingSalle(null)
+          }}
+          onSave={handleSaveSalle}
+        />
+      )}
+
+      {deletingSalle && (
+        <DeleteSalleModal
+          salle={deletingSalle}
+          loading={deletingSalleLoading}
+          onClose={() => setDeletingSalle(null)}
+          onConfirm={handleDeleteSalleConfirm}
         />
       )}
     </div>

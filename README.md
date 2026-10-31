@@ -1,6 +1,6 @@
 # Gestion Emploi du Temps
 
-Projet structuré en **Frontend** et **Backend**.
+Projet structuré en **Frontend** (React/Vite) et **Backend** (Python/Flask).
 
 ---
 
@@ -10,9 +10,10 @@ Projet structuré en **Frontend** et **Backend**.
 gestion-emploi-app/
 ├── backend/
 │   ├── data/             # Scripts SQL et données
-│   ├── server.js         # Serveur Express & API REST (Port 3001)
-│   ├── test_gen.mjs      # Scripts de test
-│   └── package.json
+│   ├── app.py            # Serveur Flask & API REST (Port 3001)
+│   ├── test_gen.py       # Script de test de génération
+│   ├── requirements.txt  # Dépendances Python
+│   └── .gitignore
 │
 ├── frontend/
 │   ├── public/           # Assets statiques
@@ -28,23 +29,33 @@ gestion-emploi-app/
 
 ## 🚀 Démarrage Rapide
 
-### 1. Démarrer le Backend
+### 1. Installer les dépendances
+
 ```bash
-# Depuis la racine gestion-emploi-app :
+# Frontend
+npm install --prefix frontend
+
+# Backend
+pip install -r backend/requirements.txt
+```
+
+### 2. Démarrer le Backend (Python/Flask)
+```bash
+# Depuis la racine :
 npm run dev:backend
 
-# OU directement dans le dossier backend :
+# OU directement :
 cd backend
-npm run dev
+python app.py
 ```
 > Le serveur API écoute sur **http://localhost:3001**
 
-### 2. Démarrer le Frontend
+### 3. Démarrer le Frontend (React/Vite)
 ```bash
-# Depuis la racine gestion-emploi-app :
+# Depuis la racine :
 npm run dev:frontend
 
-# OU directement dans le dossier frontend :
+# OU directement :
 cd frontend
 npm run dev
 ```
@@ -52,9 +63,10 @@ npm run dev
 
 ---
 
-## 📦 Installation des dépendances
+## 🛠 Technologies
 
-Pour réinstaller toutes les dépendances d'un coup :
-```bash
-npm run install:all
-```
+| Couche   | Stack                    |
+|----------|--------------------------|
+| Frontend | React 19, Vite 8         |
+| Backend  | Python 3.13, Flask 3     |
+| Database | MySQL (emplois_du_temps) |

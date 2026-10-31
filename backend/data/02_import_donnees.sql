@@ -37,6 +37,7 @@ CREATE TABLE stg_avancement (
   cle_unite VARCHAR(120) NULL COMMENT 'Calculée après le chargement'
 ) ENGINE=InnoDB;
 
+
 -- ---------- 2. Chargement des 592 lignes ----------
 INSERT INTO stg_avancement (date_maj, annee, niveau, secteur, code_filiere, filiere, type_formation, creneau, groupe, effectif_groupe, sous_groupe, statut_sous_groupe, fusion_groupe, code_fusion, annee_formation, mode_formation, code_module, module, regional, mle_present, formateur_present, mle_syn, formateur_syn, mhp_s1, mhsyn_s1, mhasyn_s1, mh_total_s1, mhp_s2, mhsyn_s2, mhasyn_s2, mh_total_s2, mhp_total, mhsyn_total, mhasyn_total, mh_total, mh_aff_present, mh_aff_sync, mh_aff_globale, mh_real_present, mh_real_sync, mh_real_globale, taux_real_present, taux_real_syn, taux_real_globale, moy_absence, nb_cc, seance_efm, validation_efm, classe_teams, module_pie, efp_pie) VALUES
 ('16/09/2026 00:00:04', 2026, 'TS', 'Digital et Intelligence Artificielle', 'DIA_DEV_TS', 'Développement Digital', 'Diplômante', 'CDJ', 'DEV105', 19, 'DEV105', 'Actif', 'DEV105 DEV106', '713076', 1, 'Résidentiel', 'M104', 'Sites Web statiques', 'O', '19026', 'BOUCHRA ASCOUR', '19026', 'BOUCHRA ASCOUR', 90, 20, 0, 110, 0, 0, 0, 0, 90, 20, 0, 110, 90, 20, 110, NULL, NULL, NULL, 0, 0, 0, NULL, 0, 'Non', 'non', NULL, NULL, NULL),
