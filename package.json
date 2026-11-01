@@ -4,6 +4,7 @@
   "scripts": {
     "dev:frontend": "npm run dev --prefix frontend",
     "dev:backend": "python backend/app.py",
+    "start:backend": "python backend/app.py",
     "build:frontend": "npm run build --prefix frontend",
     "install:frontend": "npm install --prefix frontend",
     "install:backend": "pip install -r backend/requirements.txt"

@@ -1102,8 +1102,13 @@ export default function Dashboard({ role = 'admin', onLogout }) {
   useEffect(() => {
     const init = async () => {
       try {
-        const [sw, g, p, sl, cr, u, f, ts, hc] = await Promise.all([
-          apiFetch(`${API}/semaines`),
+        let sw = await apiFetch(`${API}/semaines`)
+        if (sw.length === 0) {
+          await apiFetch(`${API}/init-semaines`, { method: 'POST' })
+          sw = await apiFetch(`${API}/semaines`)
+        }
+
+        const [g, p, sl, cr, u, f, ts, hc] = await Promise.all([
           apiFetch(`${API}/groupes`),
           apiFetch(`${API}/professeurs`),
           apiFetch(`${API}/salles`),
