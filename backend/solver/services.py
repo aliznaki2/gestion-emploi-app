@@ -102,7 +102,26 @@ class GenerateurEmploiDuTemps:
             self._log(Journal.NIVEAU_INFO, "Phase 3 : Modélisation et résolution CP-SAT (Google OR-Tools).")
             creneaux = list(Creneau.objects.all().order_by('jour', 'numero_seance'))
             salles = list(Salle.objects.filter(actif=True).select_related('type_salle'))
-            professeurs = list(Professeur.objects.filter(actif=True))
+            professeurs = list(Professeur.objects.filter(actif=True).select_related(
+                'salle_preferee', 'salle_preferee_matin', 'salle_preferee_apm'
+            ))
+
+            # Séances conservées (validées ou verrouillées) : occupation des ressources
+            occupations_groupes = set()
+            occupations_profs = set()
+            occupations_salles = set()
+            seances_conservees = Seance.objects.filter(semaine=self.semaine).select_related(
+                'creneau'
+            ).prefetch_related('seance_groupes')
+            for s in seances_conservees:
+                if not (s.verrouillee or s.statut == Seance.STATUT_VALIDE):
+                    continue
+                if s.salle_id:
+                    occupations_salles.add((s.creneau_id, s.salle_id))
+                if s.professeur_id:
+                    occupations_profs.add((s.creneau_id, s.professeur_id))
+                for sg in s.seance_groupes.all():
+                    occupations_groupes.add((s.creneau_id, sg.groupe_id))
 
             # Disponibilités formateurs
             dispos_qs = Disponibilite.objects.select_related('professeur', 'creneau')
@@ -128,6 +147,9 @@ class GenerateurEmploiDuTemps:
                 professeurs=professeurs,
                 disponibilites=disponibilites_map,
                 salles_compatibles_map=salles_compatibles_map,
+                occupations_groupes=occupations_groupes,
+                occupations_profs=occupations_profs,
+                occupations_salles=occupations_salles,
             )
 
             resultat: ResultatPlacement = modele.resoudre(max_time_seconds=max_time_seconds)

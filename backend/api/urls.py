@@ -13,10 +13,15 @@ from .views import (
 )
 from .compat_views import (
     health_check, get_semaines_compat, init_semaines_compat,
-    get_groupes_compat, get_professeurs_compat, get_salles_compat,
-    get_creneaux_compat, get_filieres_compat, get_types_salles_compat,
-    get_unites_compat, get_emploi_du_temps_compat, get_stats_compat,
-    generer_semaine_compat, valider_semaine_compat, vider_semaine_compat
+    get_creneaux_compat, get_types_salles_compat, get_unites_compat,
+    get_emploi_du_temps_compat, get_stats_compat,
+    generer_semaine_compat, valider_semaine_compat, vider_semaine_compat,
+    groupes_collection, groupe_detail,
+    professeurs_collection, professeur_detail,
+    salles_collection, salle_detail,
+    modules_collection, module_detail,
+    filieres_collection, filiere_detail,
+    secteurs_collection, secteur_detail,
 )
 
 router = DefaultRouter()
@@ -35,13 +40,31 @@ urlpatterns = [
     path('health/', health_check),
     path('semaines', get_semaines_compat, name='compat_semaines'),
     path('init-semaines', init_semaines_compat, name='compat_init_semaines'),
-    path('groupes', get_groupes_compat, name='compat_groupes'),
-    path('professeurs', get_professeurs_compat, name='compat_professeurs'),
-    path('salles', get_salles_compat, name='compat_salles'),
     path('creneaux', get_creneaux_compat, name='compat_creneaux'),
-    path('filieres', get_filieres_compat, name='compat_filieres'),
     path('types-salles', get_types_salles_compat, name='compat_types_salles'),
     path('unites', get_unites_compat, name='compat_unites'),
+
+    # ─── CRUD Séances (routes sans slash final utilisées par React) ──────────
+    path('seances', SeanceViewSet.as_view({'get': 'list', 'post': 'create'}), name='compat_seances'),
+    path('seances/<int:pk>', SeanceViewSet.as_view({
+        'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'
+    }), name='compat_seance_detail'),
+
+    # ─── CRUD Données de Base (sans slash final, format attendu par React) ───
+    path('groupes', groupes_collection, name='compat_groupes'),
+    path('groupes/<int:pk>', groupe_detail, name='compat_groupe_detail'),
+    path('professeurs', professeurs_collection, name='compat_professeurs'),
+    path('professeurs/<int:pk>', professeur_detail, name='compat_professeur_detail'),
+    path('salles', salles_collection, name='compat_salles'),
+    path('salles/<int:pk>', salle_detail, name='compat_salle_detail'),
+    path('modules', modules_collection, name='compat_modules'),
+    path('modules/<int:pk>', module_detail, name='compat_module_detail'),
+    path('filieres', filieres_collection, name='compat_filieres'),
+    path('filieres/<int:pk>', filiere_detail, name='compat_filiere_detail'),
+    path('secteurs', secteurs_collection, name='compat_secteurs'),
+    path('secteurs/<int:pk>', secteur_detail, name='compat_secteur_detail'),
+
+    # ─── Emploi du temps, statistiques & actions ─────────────────────────────
     path('emploi-du-temps/<int:semaine_id>', get_emploi_du_temps_compat, name='compat_emploi_du_temps'),
     path('emploi-du-temps/<int:semaine_id>/', get_emploi_du_temps_compat),
     path('stats/<int:semaine_id>', get_stats_compat, name='compat_stats'),

@@ -51,7 +51,7 @@ class GroupeSerializer(serializers.ModelSerializer):
         model = Groupe
         fields = [
             'id', 'code', 'filiere', 'filiere_code', 'filiere_nom',
-            'annee_etude', 'effectif', 'mode_formation', 'actif'
+            'annee_etude', 'effectif', 'regime', 'mode_formation', 'actif'
         ]
 
 
@@ -121,13 +121,16 @@ class CreneauSerializer(serializers.ModelSerializer):
 
 class ProfesseurSerializer(serializers.ModelSerializer):
     salle_preferee_nom = serializers.ReadOnlyField(source='salle_preferee.nom')
+    salle_preferee_matin_nom = serializers.ReadOnlyField(source='salle_preferee_matin.nom')
+    salle_preferee_apm_nom = serializers.ReadOnlyField(source='salle_preferee_apm.nom')
 
     class Meta:
         model = Professeur
         fields = [
             'id', 'matricule', 'nom_complet', 'utilisateur', 'statut',
             'heures_max_semaine', 'taux_presence', 'salle_preferee',
-            'salle_preferee_nom', 'actif'
+            'salle_preferee_nom', 'salle_preferee_matin', 'salle_preferee_matin_nom',
+            'salle_preferee_apm', 'salle_preferee_apm_nom', 'actif'
         ]
 
 

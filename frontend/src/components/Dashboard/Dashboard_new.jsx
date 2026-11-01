@@ -15,7 +15,14 @@ const formatDate = d => d ? new Date(d).toLocaleDateString('fr-MA', { day: '2-di
 const formatShort = d => d ? new Date(d).toLocaleDateString('fr-MA', { day: '2-digit', month: 'short' }) : ''
 const apiFetch = async (url, opts = {}) => {
   const r = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts })
-  if (!r.ok) { const e = await r.json(); throw new Error(e.error || 'Erreur serveur') }
+  if (!r.ok) {
+    let message = 'Erreur serveur'
+    try {
+      const e = await r.json()
+      message = e.message || e.error || e.detail || message
+    } catch {}
+    throw new Error(message)
+  }
   return r.json()
 }
 

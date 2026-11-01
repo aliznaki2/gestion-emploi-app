@@ -128,6 +128,16 @@ class Command(BaseCommand):
 
     def _importer_donnees(self, rows):
         """Insère les données normalisées dans les modèles Django."""
+        self.stdout.write(self.style.NOTICE("Nettoyage des anciennes sessions et unités..."))
+        from core.models import SeanceProfesseur, SeanceGroupe, Seance
+        SeanceProfesseur.objects.all().delete()
+        SeanceGroupe.objects.all().delete()
+        Seance.objects.all().delete()
+        Passage.objects.all().delete()
+        VolumeHoraire.objects.all().delete()
+        UniteProfesseur.objects.all().delete()
+        UniteGroupe.objects.all().delete()
+        UniteEnseignement.objects.all().delete()
 
         # 1. Année scolaire et semestres
         annee, _ = AnneeScolaire.objects.get_or_create(
@@ -240,7 +250,13 @@ class Command(BaseCommand):
 
             hp_s1 = float(row[23]) if row[23] else 0.0
             hsyn_s1 = float(row[24]) if row[24] else 0.0
-            h_real = float(row[37]) if len(row) > 37 and row[37] else 0.0
+            hasyn_s1 = float(row[25]) if len(row) > 25 and row[25] else 0.0
+
+            hp_s2 = float(row[27]) if len(row) > 27 and row[27] else 0.0
+            hsyn_s2 = float(row[28]) if len(row) > 28 and row[28] else 0.0
+            hasyn_s2 = float(row[29]) if len(row) > 29 and row[29] else 0.0
+
+            h_real_s1 = float(row[38]) if len(row) > 38 and row[38] else 0.0
 
             # Secteur
             if secteur_nom not in secteurs_map:
@@ -326,80 +342,115 @@ class Command(BaseCommand):
             else:
                 cle_u = f"SOLO|{groupe_code}|{code_module}"
 
-            unites_dict.setdefault(cle_u, []).append({
-                'groupe': groupe_code,
-                'module': code_module,
-                'code_fusion': code_fusion,
-                'mle_pres': mle_pres,
-                'mle_syn': mle_syn,
-                'hp_s1': hp_s1,
-                'hsyn_s1': hsyn_s1,
-                'h_real': h_real,
-            })
+            # Semestre 1 : si des heures sont prévues au S1
+            if hp_s1 + hsyn_s1 + hasyn_s1 > 0:
+                unites_dict.setdefault((cle_u, 1), []).append({
+                    'groupe': groupe_code,
+                    'module': code_module,
+                    'code_fusion': code_fusion,
+                    'mle_pres': mle_pres,
+                    'mle_syn': mle_syn,
+                    'hp': hp_s1,
+                    'hsyn': hsyn_s1,
+                    'hasyn': hasyn_s1,
+                    'h_real': h_real_s1,
+                    'sem': 1,
+                })
+
+            # Semestre 2 : si des heures sont prévues au S2
+            if hp_s2 + hsyn_s2 + hasyn_s2 > 0:
+                unites_dict.setdefault((cle_u, 2), []).append({
+                    'groupe': groupe_code,
+                    'module': code_module,
+                    'code_fusion': code_fusion,
+                    'mle_pres': mle_pres,
+                    'mle_syn': mle_syn,
+                    'hp': hp_s2,
+                    'hsyn': hsyn_s2,
+                    'hasyn': hasyn_s2,
+                    'h_real': 0.0,
+                    'sem': 2,
+                })
 
         self.stdout.write(self.style.SUCCESS(f"-> {len(groupes_map)} groupes identifiés et enregistrés."))
         self.stdout.write(self.style.SUCCESS(f"-> {len(profs_map)} professeurs identifiés et enregistrés."))
         self.stdout.write(self.style.SUCCESS(f"-> {len(modules_map)} modules identifiés et enregistrés."))
 
-        # 5. Création des Unités d'Enseignement et Volumes
+        # 5. Création des Unités d'Enseignement et Volumes par Semestre
         nb_unites_creees = 0
-        for cle_u, items in unites_dict.items():
+        for (cle_u, sem_num), items in unites_dict.items():
             first = items[0]
             module_obj = modules_map[first['module']]
             code_fusion = first['code_fusion']
+            sem_obj = s1 if sem_num == 1 else s2
 
             ue = UniteEnseignement.objects.create(
                 module=module_obj,
                 annee_scolaire=annee,
-                semestre=s1,
+                semestre=sem_obj,
                 code_fusion=code_fusion,
             )
             nb_unites_creees += 1
 
-            # Affecter les groupes
+            # Affecter les groupes (sans doublon)
+            seen_grp = set()
             for item in items:
                 grp = groupes_map.get(item['groupe'])
-                if grp:
-                    UniteGroupe.objects.get_or_create(unite=ue, groupe=grp)
+                if grp and grp.id not in seen_grp:
+                    UniteGroupe.objects.create(unite=ue, groupe=grp)
+                    seen_grp.add(grp.id)
 
-            # Affecter les formateurs
+            # Affecter les formateurs (sans doublon)
+            seen_profs = set()
             for item in items:
                 if item['mle_pres'] and item['mle_pres'] in profs_map:
-                    UniteProfesseur.objects.get_or_create(
-                        unite=ue,
-                        professeur=profs_map[item['mle_pres']],
-                        mode='presentiel'
-                    )
+                    prof_obj = profs_map[item['mle_pres']]
+                    if (prof_obj.id, 'presentiel') not in seen_profs:
+                        UniteProfesseur.objects.create(
+                            unite=ue,
+                            professeur=prof_obj,
+                            mode='presentiel'
+                        )
+                        seen_profs.add((prof_obj.id, 'presentiel'))
                 if item['mle_syn'] and item['mle_syn'] in profs_map:
-                    UniteProfesseur.objects.get_or_create(
-                        unite=ue,
-                        professeur=profs_map[item['mle_syn']],
-                        mode='distance'
-                    )
+                    prof_obj = profs_map[item['mle_syn']]
+                    if (prof_obj.id, 'distance') not in seen_profs:
+                        UniteProfesseur.objects.create(
+                            unite=ue,
+                            professeur=prof_obj,
+                            mode='distance'
+                        )
+                        seen_profs.add((prof_obj.id, 'distance'))
 
-            # Volume horaire
-            hp = max(item['hp_s1'] for item in items)
-            hs = max(item['hsyn_s1'] for item in items)
+            # Volume horaire exact du semestre selon stg_avancement
+            hp = max(item['hp'] for item in items)
+            hs = max(item['hsyn'] for item in items)
+            ha = max(item['hasyn'] for item in items)
             hr = max(item['h_real'] for item in items)
-
-            # Si hp == 0 (ex: module du S2 ou général court), attribuer une valeur raisonnable par défaut
-            if hp <= 0:
-                hp = 60.0 if module_obj.type_module == 'technique' else 30.0
 
             VolumeHoraire.objects.create(
                 unite=ue,
-                h_total=hp + hs,
+                h_total=hp + hs + ha,
                 h_presentiel=hp,
                 h_synchrone=hs,
+                h_asynchrone=ha,
                 heures_effectuees=min(hr, hp),
             )
 
             # Passages pour les modules généraux
             if module_obj.type_module == 'general':
+                # Alternance pédagogique :
+                # Les premiers modules généraux (Arabe, Français, PIE) en semaines 1 à 8 (première moitié)
+                # Les suivants (Anglais, Soft Skills, Culture Numérique) en semaines 9 à 16 (deuxième moitié)
+                code_up = module_obj.code.upper()
+                is_first_block = any(k in code_up for k in ['101', '102', '108', '201', '202', '301', '302'])
+                sem_deb = 1 if is_first_block else 9
+                sem_fin = 8 if is_first_block else 16
+
                 Passage.objects.create(
                     unite=ue,
-                    semaine_debut=1,
-                    semaine_fin=8,
+                    semaine_debut=sem_deb,
+                    semaine_fin=sem_fin,
                     intensite_h=5.0,
                     actif=True,
                 )

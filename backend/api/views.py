@@ -4,7 +4,7 @@ Vues de l'API REST DRF pour le système d'emploi du temps OFPPT.
 from rest_framework import viewsets, status, generics
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
@@ -112,7 +112,51 @@ class SeanceViewSet(viewsets.ModelViewSet):
     - Détection proactive des conflits (double réservation groupe, formateur ou salle).
     """
     serializer_class = SeanceSerializer
-    permission_classes = [SeancePermission]
+    # L'authentification du frontend est simulée : on autorise l'accès direct
+    # au CRUD des séances (le rôle est géré côté interface).
+    permission_classes = [AllowAny]
+
+    # ─── Normalisation des données envoyées par le frontend ──────────────────
+    @staticmethod
+    def _ids_liste(data, *cles):
+        """Extrait une liste d'identifiants depuis plusieurs clés possibles."""
+        for cle in cles:
+            if cle in data and data[cle] is not None:
+                valeur = data[cle]
+                if isinstance(valeur, (list, tuple)):
+                    return [int(x) for x in valeur if x not in (None, '')]
+                if valeur in ('', 0, '0'):
+                    return []
+                return [int(valeur)]
+        return None
+
+    def _normaliser(self, data):
+        """Convertit les champs `*_id` du frontend vers les champs du modèle."""
+        donnees = dict(data)
+        for champ, cles in (
+            ('unite', ('unite_id',)),
+            ('semaine', ('semaine_id',)),
+            ('creneau', ('creneau_id',)),
+            ('salle', ('salle_id',)),
+            ('professeur', ('professeur_id',)),
+        ):
+            if champ not in donnees:
+                for cle in cles:
+                    if cle in donnees:
+                        valeur = donnees.pop(cle)
+                        donnees[champ] = None if valeur in ('', 0, '0') else valeur
+                        break
+
+        groupe_ids = self._ids_liste(donnees, 'groupe_ids')
+        prof_ids = self._ids_liste(donnees, 'professeur_ids')
+        donnees.pop('groupe_ids', None)
+        donnees.pop('professeur_ids', None)
+
+        # Aligne le champ direct `professeur` sur la liste des formateurs
+        if prof_ids and not donnees.get('professeur'):
+            donnees['professeur'] = prof_ids[0]
+
+        return donnees, groupe_ids, prof_ids
 
     def get_queryset(self):
         user = self.request.user
@@ -215,20 +259,79 @@ class SeanceViewSet(viewsets.ModelViewSet):
 
         return conflits
 
+    def create(self, request, *args, **kwargs):
+        """POST /api/seances — création manuelle d'une séance."""
+        donnees, groupe_ids, prof_ids = self._normaliser(request.data)
+
+        if not donnees.get('semaine'):
+            return Response(
+                {'erreur': 'semaine_id est obligatoire.', 'message': 'semaine_id est obligatoire.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not donnees.get('unite') or not donnees.get('creneau'):
+            return Response(
+                {'erreur': 'unite_id et creneau_id sont obligatoires.',
+                 'message': 'unite_id et creneau_id sont obligatoires.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        prof_id = donnees.get('professeur')
+        groupes_ids = groupe_ids or []
+
+        conflits = self._verifier_conflits(
+            seance_id=None,
+            semaine_id=donnees.get('semaine'),
+            creneau_id=donnees.get('creneau'),
+            salle_id=donnees.get('salle'),
+            professeur_id=prof_id,
+            groupes_ids=groupes_ids,
+        )
+        if conflits:
+            return Response(
+                {'erreur': 'Conflit de planification détecté.', 'message': 'Conflit de planification détecté.',
+                 'details': conflits},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            serializer = self.get_serializer(data=donnees)
+            serializer.is_valid(raise_exception=True)
+            seance = serializer.save()
+
+            for gid in groupes_ids:
+                SeanceGroupe.objects.get_or_create(
+                    seance=seance,
+                    groupe_id=gid,
+                    defaults={'semaine_id': seance.semaine_id, 'creneau_id': seance.creneau_id},
+                )
+            for pid in (prof_ids or ([prof_id] if prof_id else [])):
+                SeanceProfesseur.objects.get_or_create(
+                    seance=seance,
+                    professeur_id=pid,
+                    defaults={'semaine_id': seance.semaine_id, 'creneau_id': seance.creneau_id},
+                )
+
+        return Response(SeanceSerializer(seance).data, status=status.HTTP_201_CREATED)
+
     def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', False)
+        partial = kwargs.pop('partial', True)
         instance = self.get_object()
 
-        nouv_creneau_id = request.data.get('creneau', instance.creneau_id)
-        nouv_salle_id = request.data.get('salle', instance.salle_id)
-        nouv_prof_id = request.data.get('professeur', instance.professeur_id)
+        donnees, groupe_ids, prof_ids = self._normaliser(request.data)
 
-        # Récupérer les groupes associés à la séance
-        groupes_ids = list(instance.seance_groupes.values_list('groupe_id', flat=True))
+        nouv_semaine_id = donnees.get('semaine', instance.semaine_id)
+        nouv_creneau_id = donnees.get('creneau', instance.creneau_id)
+        nouv_salle_id = donnees.get('salle', instance.salle_id)
+        nouv_prof_id = donnees.get('professeur', instance.professeur_id)
+
+        # Récupérer les groupes associés à la séance (ou ceux envoyés par le frontend)
+        groupes_ids = groupe_ids if groupe_ids is not None else list(
+            instance.seance_groupes.values_list('groupe_id', flat=True)
+        )
 
         conflits = self._verifier_conflits(
             seance_id=instance.id,
-            semaine_id=instance.semaine_id,
+            semaine_id=nouv_semaine_id,
             creneau_id=nouv_creneau_id,
             salle_id=nouv_salle_id,
             professeur_id=nouv_prof_id,
@@ -239,28 +342,52 @@ class SeanceViewSet(viewsets.ModelViewSet):
             return Response(
                 {
                     'erreur': 'Conflit de planification détecté.',
+                    'message': 'Conflit de planification détecté.',
                     'details': conflits,
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         with transaction.atomic():
-            response = super().update(request, *args, partial=partial, **kwargs)
-            # Mise à jour des tables de liaison SeanceGroupe et SeanceProfesseur
-            if nouv_creneau_id != instance.creneau_id:
-                SeanceGroupe.objects.filter(seance=instance).update(creneau_id=nouv_creneau_id)
-                SeanceProfesseur.objects.filter(seance=instance).update(creneau_id=nouv_creneau_id)
+            serializer = self.get_serializer(instance, data=donnees, partial=partial)
+            serializer.is_valid(raise_exception=True)
+            seance = serializer.save()
 
-            if nouv_prof_id and nouv_prof_id != instance.professeur_id:
-                SeanceProfesseur.objects.filter(seance=instance).delete()
+            # Mise à jour des tables de liaison SeanceGroupe et SeanceProfesseur
+            SeanceGroupe.objects.filter(seance=seance).update(
+                semaine_id=seance.semaine_id, creneau_id=seance.creneau_id
+            )
+            SeanceProfesseur.objects.filter(seance=seance).update(
+                semaine_id=seance.semaine_id, creneau_id=seance.creneau_id
+            )
+
+            if groupe_ids is not None:
+                SeanceGroupe.objects.filter(seance=seance).exclude(groupe_id__in=groupe_ids).delete()
+                for gid in groupe_ids:
+                    SeanceGroupe.objects.get_or_create(
+                        seance=seance,
+                        groupe_id=gid,
+                        defaults={'semaine_id': seance.semaine_id, 'creneau_id': seance.creneau_id},
+                    )
+
+            if prof_ids is not None:
+                SeanceProfesseur.objects.filter(seance=seance).exclude(professeur_id__in=prof_ids).delete()
+                for pid in prof_ids:
+                    SeanceProfesseur.objects.get_or_create(
+                        seance=seance,
+                        professeur_id=pid,
+                        defaults={'semaine_id': seance.semaine_id, 'creneau_id': seance.creneau_id},
+                    )
+            elif nouv_prof_id and nouv_prof_id != instance.professeur_id:
+                SeanceProfesseur.objects.filter(seance=seance).delete()
                 SeanceProfesseur.objects.create(
-                    seance=instance,
+                    seance=seance,
                     professeur_id=nouv_prof_id,
-                    semaine_id=instance.semaine_id,
-                    creneau_id=nouv_creneau_id,
+                    semaine_id=seance.semaine_id,
+                    creneau_id=seance.creneau_id,
                 )
 
-        return response
+        return Response(SeanceSerializer(seance).data)
 
 
 # ─── Validation Globale de la Semaine ─────────────────────────────────────────

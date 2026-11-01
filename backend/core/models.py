@@ -94,6 +94,7 @@ class Groupe(models.Model):
     filiere = models.ForeignKey(Filiere, on_delete=models.CASCADE, related_name='groupes', verbose_name=_("Filière"))
     annee_etude = models.PositiveSmallIntegerField(default=1, verbose_name=_("Année d'étude (1 ou 2)"))
     effectif = models.PositiveIntegerField(default=25, verbose_name=_("Effectif"))
+    regime = models.CharField(max_length=10, default='CDJ', verbose_name=_("Régime (CDJ / CDS)"))
     mode_formation = models.CharField(max_length=20, choices=MODE_CHOICES, default=MODE_PRESENTIEL, verbose_name=_("Mode de Formation"))
     actif = models.BooleanField(default=True, verbose_name=_("Actif"))
 
@@ -257,7 +258,23 @@ class Professeur(models.Model):
         null=True,
         blank=True,
         related_name='professeurs_preferes',
-        verbose_name=_("Salle préférée"),
+        verbose_name=_("Salle préférée (générale)"),
+    )
+    salle_preferee_matin = models.ForeignKey(
+        Salle,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='professeurs_preferes_matin',
+        verbose_name=_("Salle préférée (Matin / AM)"),
+    )
+    salle_preferee_apm = models.ForeignKey(
+        Salle,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='professeurs_preferes_apm',
+        verbose_name=_("Salle préférée (Après-midi / PM)"),
     )
     actif = models.BooleanField(default=True, verbose_name=_("Actif"))
 
@@ -268,6 +285,12 @@ class Professeur(models.Model):
 
     def __str__(self):
         return f"{self.nom_complet} ({self.matricule} - {self.get_statut_display()})"
+
+    def salle_preferee_pour_creneau(self, creneau):
+        """Retourne la salle préférée du formateur selon la période (AM/PM)."""
+        if creneau is not None and getattr(creneau, 'periode', None) == 'apm':
+            return self.salle_preferee_apm or self.salle_preferee
+        return self.salle_preferee_matin or self.salle_preferee
 
 
 # ─── 7. Créneaux Horaires ─────────────────────────────────────────────────────
