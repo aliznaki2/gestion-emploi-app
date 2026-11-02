@@ -157,6 +157,12 @@ class Module(models.Model):
     intitule = models.CharField(max_length=150, verbose_name=_("Intitulé"))
     type_module = models.CharField(max_length=20, choices=TYPE_CHOICES, default=TYPE_TECHNIQUE, verbose_name=_("Type de Module"))
     regional = models.BooleanField(default=False, verbose_name=_("Épreuve régionale (EFM)"))
+    efm_fin_module = models.BooleanField(
+        default=True,
+        verbose_name=_("Examen de fin de module (EFM)"),
+        help_text=_("La dernière séance du module est marquée « EFM » dans "
+                    "l'emploi du temps afin que les stagiaires la repèrent."),
+    )
     seances_2_5_autorisees = models.BooleanField(
         default=False,
         verbose_name=_("Autoriser les séances de 2,5 h"),

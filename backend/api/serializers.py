@@ -77,7 +77,10 @@ class SalleSerializer(serializers.ModelSerializer):
 class ModuleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Module
-        fields = ['id', 'code', 'intitule', 'type_module', 'regional', 'types_salles_compatibles']
+        fields = [
+            'id', 'code', 'intitule', 'type_module', 'regional',
+            'efm_fin_module', 'seances_2_5_autorisees', 'types_salles_compatibles',
+        ]
 
 
 class AnneeScolaireSerializer(serializers.ModelSerializer):

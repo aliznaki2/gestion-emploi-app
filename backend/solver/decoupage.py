@@ -50,6 +50,7 @@ class DecoupeurSeances:
             module = unite.module
             est_fusion = bool(prev.code_fusion)
             autorise_2_5 = bool(getattr(module, 'peut_avoir_seance_2_5', False))
+            nb_avant = len(seances)
 
             # Découpage par tranche de 5h (Blocs)
             while heures_a_traiter >= self.DUREE_BLOC:
@@ -120,6 +121,15 @@ class DecoupeurSeances:
                 )
                 seances.append(s_simple)
                 heures_a_traiter -= self.DUREE_SEANCE
+
+            # EFM : la dernière séance du module (lors de sa dernière semaine)
+            # est marquée comme examen afin que les stagiaires la repèrent.
+            if (
+                prev.derniere_semaine
+                and getattr(module, 'efm_fin_module', False)
+                and len(seances) > nb_avant
+            ):
+                seances[-1].nature = 'examen'
 
         return seances
 

@@ -253,6 +253,18 @@ table.ntic-table .module {
   line-height: 1.25;
 }
 
+.efm-badge {
+  display: inline-block;
+  background-color: #dc2626;
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  line-height: 1.4;
+}
+
 table.ntic-table .vide {
   background-color: #ffffff;
 }

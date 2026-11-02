@@ -154,6 +154,7 @@ def _module_data(m):
         'type_module': m.type_module,
         'type_module_libelle': m.get_type_module_display(),
         'regional': m.regional,
+        'efm_fin_module': m.efm_fin_module,
         'seances_2_5_autorisees': m.seances_2_5_autorisees,
         'peut_avoir_seance_2_5': m.peut_avoir_seance_2_5,
         'est_technique_m10': m.est_technique_m10,
@@ -589,6 +590,7 @@ def modules_collection(request):
                 intitule=intitule,
                 type_module=str(data.get('type_module') or 'technique').strip().lower(),
                 regional=_bool(data.get('regional'), False),
+                efm_fin_module=_bool(data.get('efm_fin_module'), True),
                 seances_2_5_autorisees=(
                     False if code.startswith('M10')
                     else _bool(data.get('seances_2_5_autorisees'), False)
@@ -627,6 +629,8 @@ def module_detail(request, pk):
             module.type_module = str(data.get('type_module') or 'technique').strip().lower()
         if 'regional' in data:
             module.regional = _bool(data.get('regional'), False)
+        if 'efm_fin_module' in data:
+            module.efm_fin_module = _bool(data.get('efm_fin_module'), True)
         if 'seances_2_5_autorisees' in data:
             module.seances_2_5_autorisees = _bool(data.get('seances_2_5_autorisees'), False)
         # Les modules techniques M10 sont toujours en blocs de 5 h.

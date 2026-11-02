@@ -297,6 +297,7 @@ function EditModal({ seance, unites, salles, creneaux, professeurs, onClose, onS
   const [salleId, setSalleId] = useState(seance.salle_id || '')
   const [profId, setProfId] = useState(seance.professeurs?.[0]?.prof_id || '')
   const [mode, setMode] = useState(seance.mode || 'presentiel')
+  const [nature, setNature] = useState(seance.nature || 'bloc')
   const [statut, setStatut] = useState(seance.statut || 'brouillon')
   const [loading, setLoading] = useState(false)
 
@@ -325,6 +326,7 @@ function EditModal({ seance, unites, salles, creneaux, professeurs, onClose, onS
           salle_id: (mode === 'presentiel' && salleId) ? +salleId : null,
           professeur_id: profId ? +profId : null,
           mode,
+          nature,
           statut,
         })
       })
@@ -405,6 +407,15 @@ function EditModal({ seance, unites, salles, creneaux, professeurs, onClose, onS
             </select>
           </div>
         )}
+
+        <div className="modal-field">
+          <label>Type de séance</label>
+          <select value={nature} onChange={e => setNature(e.target.value)}>
+            <option value="bloc">Cours (bloc de 5 h)</option>
+            <option value="simple">Cours (séance de 2,5 h)</option>
+            <option value="examen">EFM — Examen de fin de module</option>
+          </select>
+        </div>
 
         <div className="modal-field">
           <label>Statut</label>
@@ -1254,6 +1265,7 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
   const [intitule, setIntitule] = useState(module?.intitule || '')
   const [typeModule, setTypeModule] = useState(module?.type_module || 'technique')
   const [regional, setRegional] = useState(module?.regional ?? false)
+  const [efmFinModule, setEfmFinModule] = useState(module?.efm_fin_module ?? true)
   const [seances25, setSeances25] = useState(module?.seances_2_5_autorisees ?? false)
   const estM10 = code.trim().toUpperCase().startsWith('M10')
   const [typesCompatibles, setTypesCompatibles] = useState(
@@ -1286,6 +1298,7 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
         intitule: intitule.trim(),
         type_module: typeModule,
         regional,
+        efm_fin_module: efmFinModule,
         seances_2_5_autorisees: estM10 ? false : seances25,
         types_salles_compatibles: typesCompatibles.map(Number),
       }
@@ -1337,11 +1350,21 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
               onChange={e => setIntitule(e.target.value)} required />
           </div>
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#334155', marginBottom: 12 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#334155', marginBottom: 4 }}>
             <input type="checkbox" checked={regional} onChange={e => setRegional(e.target.checked)}
               style={{ width: 16, height: 16, cursor: 'pointer' }} />
             Épreuve régionale (EFM)
           </label>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#334155', marginBottom: 4 }}>
+            <input type="checkbox" checked={efmFinModule} onChange={e => setEfmFinModule(e.target.checked)}
+              style={{ width: 16, height: 16, cursor: 'pointer' }} />
+            Marquer la dernière séance comme EFM
+          </label>
+          <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, lineHeight: 1.5 }}>
+            La dernière séance du module sera affichée « EFM » dans l'emploi du temps
+            pour que les stagiaires la repèrent.
+          </div>
 
           <label style={{
             display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
@@ -2336,7 +2359,10 @@ export default function Dashboard({ role = 'admin', onLogout }) {
         const r2 = ['', 'MODULE']
         ALL_24_SLOTS.forEach(slot => {
           const s = seanceMap[`${g.id}_${slot.jour}_${slot.seance}`]
-          r2.push(s ? (s.module_intitule || s.module_code) : '')
+          const moduleLabel = s
+            ? `${s.module_intitule || s.module_code}${s.nature === 'examen' ? ' (EFM)' : ''}`
+            : ''
+          r2.push(moduleLabel)
         })
         r2.push('')
         rows.push(r2.map(escapeCsv).join(';'))
@@ -2722,9 +2748,17 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                                         key={`mod_${groupe.id}_${slot.jour}_${slot.seance}`}
                                         className={s ? 'module cell-clickable' : 'vide cell-clickable'}
                                         onClick={() => s ? setEditSeance(s) : handleCellClickEmpty(groupe, slot.jour, slot.seance)}
-                                        title={s ? `${s.module_intitule} (${s.module_code}) | Cliquez pour modifier` : `Cliquer pour ajouter une séance (${displayCode} - ${slot.jourNom} S${slot.seance})`}
+                                        title={s
+                                          ? `${s.module_intitule} (${s.module_code})${s.nature === 'examen' ? ' — EFM (examen de fin de module)' : ''} | Cliquez pour modifier`
+                                          : `Cliquer pour ajouter une séance (${displayCode} - ${slot.jourNom} S${slot.seance})`
+                                        }
                                       >
-                                        {s ? (s.module_intitule || s.module_code) : ''}
+                                        {s ? (
+                                          <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                                            {s.nature === 'examen' && <span className="efm-badge">EFM</span>}
+                                            <span>{s.module_intitule || s.module_code}</span>
+                                          </span>
+                                        ) : ''}
                                       </td>
                                     )
                                   })}
@@ -3687,6 +3721,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                         <th style={{ padding: '14px 18px' }}>Intitulé</th>
                         <th style={{ padding: '14px 18px', textAlign: 'center' }}>Type</th>
                         <th style={{ padding: '14px 18px', textAlign: 'center' }}>Régional</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>EFM</th>
                         <th style={{ padding: '14px 18px', textAlign: 'center' }}>Séances</th>
                         <th style={{ padding: '14px 18px' }}>Salles compatibles</th>
                         <th style={{ padding: '14px 18px', textAlign: 'right' }}>Actions</th>
@@ -3695,7 +3730,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                     <tbody>
                       {filteredModulesList.length === 0 ? (
                         <tr>
-                          <td colSpan={7} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
+                          <td colSpan={8} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
                             <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>Aucun module trouvé</div>
                             <div style={{ fontSize: 13, marginTop: 4 }}>Modifiez votre filtre ou terme de recherche</div>
                           </td>
@@ -3727,6 +3762,16 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                           </td>
                           <td style={{ padding: '14px 18px', textAlign: 'center', color: '#475569' }}>
                             {m.regional ? 'Oui' : '—'}
+                          </td>
+                          <td style={{ padding: '14px 18px', textAlign: 'center' }}>
+                            {m.efm_fin_module ? (
+                              <span style={{
+                                background: '#fee2e2', color: '#b91c1c',
+                                padding: '3px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700
+                              }}>
+                                EFM
+                              </span>
+                            ) : '—'}
                           </td>
                           <td style={{ padding: '14px 18px', textAlign: 'center' }}>
                             <span style={{

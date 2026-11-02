@@ -30,6 +30,7 @@ class UnitePrevision:
     type_module: str
     code_fusion: Optional[str] = None
     est_passage: bool = False
+    derniere_semaine: bool = False
 
 
 class CalculateurHeures:
@@ -456,6 +457,13 @@ class CalculateurHeures:
             if heures <= 0:
                 continue
             ue = unite_obj_map[uid]
+            dispo_initiale = dispo_unite.get(uid, 0.0)
+            # Le module se termine cette semaine si, après planification, il ne
+            # reste au plus qu'un créneau de 2,5 h (résidu éventuel de l'EFM).
+            derniere_semaine = (
+                dispo_initiale > 0
+                and (dispo_initiale - heures) <= self.DUREE_CRENEAU + 1e-6
+            )
             previsions.append(
                 UnitePrevision(
                     unite_id=uid,
@@ -466,6 +474,7 @@ class CalculateurHeures:
                     type_module=ue.module.type_module,
                     code_fusion=ue.code_fusion,
                     est_passage=unite_is_passage_map[uid],
+                    derniere_semaine=derniere_semaine,
                 )
             )
 
