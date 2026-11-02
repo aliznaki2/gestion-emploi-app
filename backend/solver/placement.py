@@ -48,8 +48,8 @@ class ModelePlacement:
     P_10H = 1000            # Journée de 10h (4 créneaux) pour un groupe
     P_JOUR_VIDE = 200       # Journée vide pour un groupe actif (Lundi-Vendredi)
     P_SURCHARGE = 80        # Dépassement de 2 créneaux (5h) par jour pour un groupe
-    P_TROU_GROUPE = 60      # Heure creuse (trou) dans l'emploi du temps d'un groupe
-    P_TROU_PROF = 40        # Heure creuse pour un formateur
+    P_TROU_GROUPE = 700     # Heure creuse (trou) dans l'emploi du temps d'un groupe
+    P_TROU_PROF = 150       # Heure creuse pour un formateur
 
     def __init__(
         self,
@@ -257,6 +257,9 @@ class ModelePlacement:
             for p in seance_candidates_profs[s.id]:
                 prof_seances_map.setdefault(p.id, []).append(s.id)
 
+        # Occupation effective d'un formateur sur un créneau (tient compte du choix Z)
+        prof_occ: Dict[Tuple[int, int], object] = {}
+
         for p in self.professeurs:
             s_ids = prof_seances_map.get(p.id, [])
             if not s_ids:
@@ -282,6 +285,7 @@ class ModelePlacement:
                     model_time.Add(sum(assigned_vars) == 0)
                 else:
                     model_time.Add(sum(assigned_vars) <= 1)
+                prof_occ[(p.id, c.id)] = sum(assigned_vars) if assigned_vars else 0
 
             # Plafond hebdomadaire du professeur (toutes affectations confondues)
             if p.heures_max_semaine:
@@ -380,6 +384,28 @@ class ModelePlacement:
                     day_empty = model_time.NewBoolVar(f"g_{gid}_j_{jour}_empty")
                     model_time.Add(day_empty == 1 - day_active_vars[j_idx])
                     penalites_temps.append(self.P_JOUR_VIDE * day_empty)
+
+        # Heures creuses des formateurs (poids plus faible que les groupes)
+        for p in self.professeurs:
+            s_ids = prof_seances_map.get(p.id, [])
+            if not s_ids:
+                continue
+            for jour, cr_list in self.creneaux_par_jour.items():
+                s_cr_map = {c.numero_seance: c.id for c in cr_list}
+
+                def occ(num):
+                    cid = s_cr_map.get(num)
+                    return prof_occ.get((p.id, cid), 0) if cid else 0
+
+                if all(k in s_cr_map for k in (1, 2, 3)):
+                    hole_s2 = model_time.NewBoolVar(f"p_{p.id}_hole_s2_j{jour}")
+                    model_time.Add(occ(1) + occ(3) - occ(2) <= 1 + hole_s2)
+                    penalites_temps.append(self.P_TROU_PROF * hole_s2)
+
+                if all(k in s_cr_map for k in (2, 3, 4)):
+                    hole_s3 = model_time.NewBoolVar(f"p_{p.id}_hole_s3_j{jour}")
+                    model_time.Add(occ(2) + occ(4) - occ(3) <= 1 + hole_s3)
+                    penalites_temps.append(self.P_TROU_PROF * hole_s3)
 
         # Pénalité créneau préféré pour les formateurs
         for p in self.professeurs:

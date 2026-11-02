@@ -1254,6 +1254,8 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
   const [intitule, setIntitule] = useState(module?.intitule || '')
   const [typeModule, setTypeModule] = useState(module?.type_module || 'technique')
   const [regional, setRegional] = useState(module?.regional ?? false)
+  const [seances25, setSeances25] = useState(module?.seances_2_5_autorisees ?? false)
+  const estM10 = code.trim().toUpperCase().startsWith('M10')
   const [typesCompatibles, setTypesCompatibles] = useState(
     module?.types_salles_ids || module?.types_salles_compatibles || []
   )
@@ -1284,6 +1286,7 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
         intitule: intitule.trim(),
         type_module: typeModule,
         regional,
+        seances_2_5_autorisees: estM10 ? false : seances25,
         types_salles_compatibles: typesCompatibles.map(Number),
       }
       const res = isEdit
@@ -1339,6 +1342,27 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
               style={{ width: 16, height: 16, cursor: 'pointer' }} />
             Épreuve régionale (EFM)
           </label>
+
+          <label style={{
+            display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
+            color: estM10 ? '#94a3b8' : '#334155', marginBottom: 4,
+            cursor: estM10 ? 'not-allowed' : 'pointer'
+          }}>
+            <input
+              type="checkbox"
+              checked={estM10 ? false : seances25}
+              disabled={estM10}
+              onChange={e => setSeances25(e.target.checked)}
+              style={{ width: 16, height: 16, cursor: estM10 ? 'not-allowed' : 'pointer' }}
+            />
+            Autoriser les séances de 2,5 h
+          </label>
+          <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, lineHeight: 1.5 }}>
+            Par défaut, le moteur génère uniquement des blocs de 5 h.
+            {estM10
+              ? ' Les modules techniques M10 sont toujours planifiés en blocs de 5 h.'
+              : ' Cochez cette case uniquement si ce module doit avoir des séances isolées de 2,5 h (ex: PIE).'}
+          </div>
 
           <div className="modal-field">
             <label>Types de salles compatibles</label>
@@ -3663,6 +3687,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                         <th style={{ padding: '14px 18px' }}>Intitulé</th>
                         <th style={{ padding: '14px 18px', textAlign: 'center' }}>Type</th>
                         <th style={{ padding: '14px 18px', textAlign: 'center' }}>Régional</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>Séances</th>
                         <th style={{ padding: '14px 18px' }}>Salles compatibles</th>
                         <th style={{ padding: '14px 18px', textAlign: 'right' }}>Actions</th>
                       </tr>
@@ -3670,7 +3695,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                     <tbody>
                       {filteredModulesList.length === 0 ? (
                         <tr>
-                          <td colSpan={6} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
+                          <td colSpan={7} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
                             <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>Aucun module trouvé</div>
                             <div style={{ fontSize: 13, marginTop: 4 }}>Modifiez votre filtre ou terme de recherche</div>
                           </td>
@@ -3702,6 +3727,15 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                           </td>
                           <td style={{ padding: '14px 18px', textAlign: 'center', color: '#475569' }}>
                             {m.regional ? 'Oui' : '—'}
+                          </td>
+                          <td style={{ padding: '14px 18px', textAlign: 'center' }}>
+                            <span style={{
+                              background: m.peut_avoir_seance_2_5 ? '#fef3c7' : '#f1f5f9',
+                              color: m.peut_avoir_seance_2_5 ? '#b45309' : '#475569',
+                              padding: '3px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700
+                            }}>
+                              {m.peut_avoir_seance_2_5 ? '5 h / 2,5 h' : '5 h'}
+                            </span>
                           </td>
                           <td style={{ padding: '14px 18px', color: '#475569', fontSize: 12 }}>
                             {m.types_salles_libelles?.length ? m.types_salles_libelles.join(', ') : 'Toutes'}

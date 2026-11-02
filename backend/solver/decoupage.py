@@ -49,6 +49,7 @@ class DecoupeurSeances:
             unite = prev.unite
             module = unite.module
             est_fusion = bool(prev.code_fusion)
+            autorise_2_5 = bool(getattr(module, 'peut_avoir_seance_2_5', False))
 
             # Découpage par tranche de 5h (Blocs)
             while heures_a_traiter >= self.DUREE_BLOC:
@@ -97,8 +98,9 @@ class DecoupeurSeances:
 
                 heures_a_traiter -= self.DUREE_BLOC
 
-            # Séance simple résiduelle de 2.5h
-            if heures_a_traiter >= self.DUREE_SEANCE:
+            # Séance simple résiduelle de 2.5h — uniquement si le module l'autorise.
+            # Par défaut (et toujours pour les modules M10), tout est en blocs de 5h.
+            if autorise_2_5 and heures_a_traiter >= self.DUREE_SEANCE:
                 self._seance_counter += 1
                 s_simple = SeanceAPlacer(
                     id=self._seance_counter,

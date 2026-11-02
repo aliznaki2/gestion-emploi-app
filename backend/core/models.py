@@ -157,6 +157,12 @@ class Module(models.Model):
     intitule = models.CharField(max_length=150, verbose_name=_("Intitulé"))
     type_module = models.CharField(max_length=20, choices=TYPE_CHOICES, default=TYPE_TECHNIQUE, verbose_name=_("Type de Module"))
     regional = models.BooleanField(default=False, verbose_name=_("Épreuve régionale (EFM)"))
+    seances_2_5_autorisees = models.BooleanField(
+        default=False,
+        verbose_name=_("Autoriser les séances de 2,5 h"),
+        help_text=_("Par défaut, seules les séances de 5 h sont générées. "
+                    "Les modules techniques M10 ne peuvent jamais avoir de séances de 2,5 h."),
+    )
     types_salles_compatibles = models.ManyToManyField(
         TypeSalle,
         blank=True,
@@ -168,6 +174,18 @@ class Module(models.Model):
         verbose_name = _("Module")
         verbose_name_plural = _("Modules")
         ordering = ['code']
+
+    @property
+    def est_technique_m10(self) -> bool:
+        return (self.code or '').upper().startswith('M10')
+
+    @property
+    def peut_avoir_seance_2_5(self) -> bool:
+        """Une séance isolée de 2,5 h n'est possible que si le module l'autorise
+        et qu'il ne s'agit pas d'un module technique M10 (blocs de 5 h uniquement)."""
+        if self.est_technique_m10:
+            return False
+        return bool(self.seances_2_5_autorisees)
 
     def __str__(self):
         return f"{self.code} - {self.intitule} ({self.get_type_module_display()})"

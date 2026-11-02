@@ -56,6 +56,20 @@ class CalculateurHeures:
         return max(5.0, rounded)
 
     @staticmethod
+    def round_to_5_only(val: float) -> float:
+        """Arrondi au multiple de 5h le plus proche (2,5 est arrondi vers le haut)."""
+        if val <= 0:
+            return 0.0
+        return max(0.0, math.floor((val + 2.5) / 5.0 + 1e-9) * 5.0)
+
+    @staticmethod
+    def plafond_multiple_de_5(val: float) -> float:
+        """Plus grand multiple de 5h inférieur ou égal à val."""
+        if val <= 0:
+            return 0.0
+        return math.floor(val / 5.0 + 1e-9) * 5.0
+
+    @staticmethod
     def round_to_creneau(val: float) -> float:
         """Arrondi au multiple de 2.5h le plus proche."""
         if val <= 0:
@@ -192,6 +206,7 @@ class CalculateurHeures:
                 continue
 
             module = ue.module
+            autorise_2_5 = bool(getattr(module, 'peut_avoir_seance_2_5', False))
             if module.type_module == 'general':
                 # Module général : Vérification du Passage actif
                 active_passage = ue.passages.filter(
@@ -202,7 +217,13 @@ class CalculateurHeures:
 
                 if active_passage:
                     heures = min(float(active_passage.intensite_h), dispo)
-                    unite_heures[unite_id] = self.round_to_creneau(heures)
+                    if autorise_2_5:
+                        unite_heures[unite_id] = self.round_to_creneau(heures)
+                    else:
+                        unite_heures[unite_id] = min(
+                            self.round_to_5_only(heures),
+                            self.plafond_multiple_de_5(dispo),
+                        )
                     unite_is_passage_map[unite_id] = True
                 else:
                     # En dehors de la période de passage
@@ -210,10 +231,16 @@ class CalculateurHeures:
             else:
                 # Module technique : Formule basée sur les semaines restantes
                 heures_hebdo_brut = dispo / semaines_restantes
-                heures_arrondies = self.round_to_5(heures_hebdo_brut)
-                heures_arrondies = min(heures_arrondies, dispo)
-                # Arrondir au multiple de 2.5h (créneau)
-                unite_heures[unite_id] = self.round_to_creneau(heures_arrondies)
+                if autorise_2_5:
+                    heures_arrondies = self.round_to_5(heures_hebdo_brut)
+                    heures_arrondies = min(heures_arrondies, dispo)
+                    # Arrondir au multiple de 2.5h (créneau)
+                    unite_heures[unite_id] = self.round_to_creneau(heures_arrondies)
+                else:
+                    # Séances de 5 h uniquement : multiple de 5 sans dépasser le reste
+                    heures_arrondies = self.round_to_5_only(heures_hebdo_brut)
+                    heures_arrondies = min(heures_arrondies, self.plafond_multiple_de_5(dispo))
+                    unite_heures[unite_id] = heures_arrondies
 
         # Charges courantes
         charge_prof: Dict[int, float] = defaultdict(float)
@@ -272,6 +299,24 @@ class CalculateurHeures:
             for gid in unite_groupes_map.get(uid, []):
                 total_groupe[gid] -= decrement
 
+        def pas_min(uid: int) -> float:
+            """Pas d'ajustement : 5 h par défaut, 2,5 h si le module l'autorise."""
+            module = unite_obj_map[uid].module
+            return 2.5 if getattr(module, 'peut_avoir_seance_2_5', False) else 5.0
+
+        def prochain_pas(uid: int, reste: float, besoin: float) -> float:
+            """Retourne 0 si aucun ajustement n'est possible, sinon 5 h ou 2,5 h."""
+            pas = pas_min(uid)
+            if pas >= 5.0 - 1e-6:
+                if reste < 5.0 - 1e-6 or besoin < 5.0 - 1e-6:
+                    return 0.0
+                return 5.0
+            if reste < 2.5 - 1e-6 or besoin < 2.5 - 1e-6:
+                return 0.0
+            if reste >= 5.0 - 1e-6 and besoin >= 5.0 - 1e-6:
+                return 5.0
+            return 2.5
+
         # ─── 4. Équilibrage par Groupe (entre 30h et 35h par semaine) ──────────
         for groupe in groupes:
             gid = groupe.id
@@ -296,11 +341,11 @@ class CalculateurHeures:
                 for uid in uids_techniques:
                     while deficit >= self.DUREE_CRENEAU - 1e-6:
                         reste = dispo_unite.get(uid, 0.0) - unite_heures.get(uid, 0.0)
-                        if reste < self.DUREE_CRENEAU - 1e-6:
+                        step = prochain_pas(uid, reste, deficit)
+                        if step <= 0:
                             break
-                        step = 5.0 if (reste >= 5.0 and deficit >= 5.0) else self.DUREE_CRENEAU
-                        if not capacite_ok(uid, step) and step > self.DUREE_CRENEAU:
-                            step = self.DUREE_CRENEAU
+                        if not capacite_ok(uid, step) and step > pas_min(uid) + 1e-6:
+                            step = pas_min(uid)
                         if not capacite_ok(uid, step):
                             break
                         ajouter(uid, step)
@@ -318,10 +363,15 @@ class CalculateurHeures:
 
                 for uid in uids_techniques:
                     while exces >= self.DUREE_CRENEAU - 1e-6:
-                        if unite_heures.get(uid, 0.0) <= self.DUREE_CRENEAU:
+                        pas = pas_min(uid)
+                        dispo_uid = unite_heures.get(uid, 0.0)
+                        if dispo_uid < pas - 1e-6:
                             break
-                        retirer(uid, self.DUREE_CRENEAU)
-                        exces -= self.DUREE_CRENEAU
+                        # Pour un module en blocs de 5 h, ne pas sur-réduire de 2,5 h.
+                        if pas >= 5.0 - 1e-6 and exces < 5.0 - 1e-6:
+                            break
+                        retirer(uid, pas)
+                        exces -= pas
 
         # ─── 5. Respect du plafond hebdomadaire des formateurs ─────────────────
         # On réduit les unités excédentaires, y compris les passages si nécessaire.
@@ -333,7 +383,7 @@ class CalculateurHeures:
             while charge_prof[pid] > max_h + 1e-6:
                 candidats = [
                     uid for uid in uids
-                    if unite_heures.get(uid, 0.0) >= self.DUREE_CRENEAU - 1e-6
+                    if unite_heures.get(uid, 0.0) >= pas_min(uid) - 1e-6
                 ]
                 if not candidats:
                     break
@@ -352,7 +402,11 @@ class CalculateurHeures:
                     )
 
                 candidats.sort(key=cle_reduction)
-                retirer(candidats[0], self.DUREE_CRENEAU)
+                uid = candidats[0]
+                pas = pas_min(uid)
+                if unite_heures.get(uid, 0.0) < pas - 1e-6:
+                    break
+                retirer(uid, pas)
 
         # ─── 6. Rééquilibrage des groupes après réduction des formateurs ──────
         for gid in sorted(groupe_ids_autorises, key=lambda g: total_groupe.get(g, 0.0)):
@@ -372,24 +426,24 @@ class CalculateurHeures:
             for uid in uids:
                 while deficit >= self.DUREE_CRENEAU - 1e-6:
                     reste = dispo_unite.get(uid, 0.0) - unite_heures.get(uid, 0.0)
-                    if reste < self.DUREE_CRENEAU - 1e-6:
+                    step = prochain_pas(uid, reste, deficit)
+                    if step <= 0:
                         break
-                    step = 5.0 if (reste >= 5.0 and deficit >= 5.0) else self.DUREE_CRENEAU
 
                     # Ne pas dépasser l'objectif maximal d'un groupe desservi
                     if any(
                         total_groupe.get(g, 0.0) + step > self.OBJECTIF_MAX_HEURES
                         for g in unite_groupes_map.get(uid, [])
                     ):
-                        step = self.DUREE_CRENEAU
+                        step = pas_min(uid)
                         if any(
                             total_groupe.get(g, 0.0) + step > self.OBJECTIF_MAX_HEURES
                             for g in unite_groupes_map.get(uid, [])
                         ):
                             break
 
-                    if not capacite_ok(uid, step) and step > self.DUREE_CRENEAU:
-                        step = self.DUREE_CRENEAU
+                    if not capacite_ok(uid, step) and step > pas_min(uid) + 1e-6:
+                        step = pas_min(uid)
                     if not capacite_ok(uid, step):
                         break
 

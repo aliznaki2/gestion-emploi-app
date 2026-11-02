@@ -154,6 +154,9 @@ def _module_data(m):
         'type_module': m.type_module,
         'type_module_libelle': m.get_type_module_display(),
         'regional': m.regional,
+        'seances_2_5_autorisees': m.seances_2_5_autorisees,
+        'peut_avoir_seance_2_5': m.peut_avoir_seance_2_5,
+        'est_technique_m10': m.est_technique_m10,
         'types_salles_compatibles': [t.id for t in types],
         'types_salles_ids': [t.id for t in types],
         'types_salles_codes': [t.code for t in types],
@@ -586,6 +589,10 @@ def modules_collection(request):
                 intitule=intitule,
                 type_module=str(data.get('type_module') or 'technique').strip().lower(),
                 regional=_bool(data.get('regional'), False),
+                seances_2_5_autorisees=(
+                    False if code.startswith('M10')
+                    else _bool(data.get('seances_2_5_autorisees'), False)
+                ),
             )
             types_ids = data.get('types_salles_compatibles') or data.get('types_salles_ids') or []
             if types_ids:
@@ -620,6 +627,11 @@ def module_detail(request, pk):
             module.type_module = str(data.get('type_module') or 'technique').strip().lower()
         if 'regional' in data:
             module.regional = _bool(data.get('regional'), False)
+        if 'seances_2_5_autorisees' in data:
+            module.seances_2_5_autorisees = _bool(data.get('seances_2_5_autorisees'), False)
+        # Les modules techniques M10 sont toujours en blocs de 5 h.
+        if (module.code or '').upper().startswith('M10'):
+            module.seances_2_5_autorisees = False
         module.save()
         if 'types_salles_compatibles' in data or 'types_salles_ids' in data:
             types_ids = data.get('types_salles_compatibles') or data.get('types_salles_ids') or []
