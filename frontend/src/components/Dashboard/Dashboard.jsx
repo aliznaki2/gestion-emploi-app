@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, Fragment } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react'
 import './Dashboard.css'
 
 const API = 'http://localhost:3001/api'
@@ -58,7 +58,7 @@ const SECTIONS = [
   { id: 'ge_1',  order: 5, title: 'GESTION DES ENTREPRISES — 1ÈRE ANNÉE', short: 'GE 1ère Année' },
   { id: 'ge_2',  order: 6, title: 'GESTION DES ENTREPRISES — 2ÈME ANNÉE', short: 'GE 2ème Année' },
   { id: 'ge_3',  order: 7, title: 'GESTION DES ENTREPRISES — 3ÈME ANNÉE', short: 'GE 3ème Année' },
-  { id: 'tsm',   order: 8, title: 'TECHNICIEN SPÉCIALISÉ EN MULTIMÉDIA', short: 'TSM Multimédia' },
+  { id: 'tsm',   order: 8, title: 'Technicien Spécialisé en Météorologie', short: 'TSM Météorologie' },
   { id: 'autre', order: 9, title: 'AUTRES SECTIONS', short: 'Autres' },
 ]
 
@@ -109,6 +109,145 @@ const apiFetch = async (url, opts = {}) => {
     throw new Error(errMsg)
   }
   return r.json()
+}
+
+// ─── Recherche clavier dans un select ────────────────────────────────────────
+function SearchableSelect({
+  value,
+  onChange,
+  options = [],
+  placeholder = '— Sélectionner —',
+  required = false,
+  style,
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [highlight, setHighlight] = useState(0)
+  const boxRef = useRef(null)
+  const listRef = useRef(null)
+
+  const selected = options.find(o => String(o.value) === String(value))
+  const filtered = useMemo(() => {
+    const q = (query || '').trim().toLowerCase()
+    if (!q) return options
+    return options.filter(o => (o.label || '').toLowerCase().includes(q))
+  }, [options, query])
+
+  useEffect(() => {
+    const onDocMouseDown = (e) => {
+      if (boxRef.current && !boxRef.current.contains(e.target)) {
+        setOpen(false)
+        setQuery('')
+      }
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [])
+
+  useEffect(() => {
+    if (highlight > filtered.length - 1) setHighlight(Math.max(0, filtered.length - 1))
+  }, [filtered, highlight])
+
+  const choisir = (opt) => {
+    onChange(opt.value)
+    setQuery('')
+    setOpen(false)
+    setHighlight(0)
+  }
+
+  const onKeyDown = (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setOpen(true)
+      setHighlight(h => Math.min(h + 1, Math.max(0, filtered.length - 1)))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setOpen(true)
+      setHighlight(h => Math.max(h - 1, 0))
+    } else if (e.key === 'Enter') {
+      if (open && filtered[highlight]) {
+        e.preventDefault()
+        choisir(filtered[highlight])
+      }
+    } else if (e.key === 'Escape') {
+      setOpen(false)
+      setQuery('')
+    }
+  }
+
+  return (
+    <div ref={boxRef} style={{ position: 'relative', ...style }}>
+      <input
+        type="text"
+        value={open ? query : (selected?.label || '')}
+        placeholder={selected ? selected.label : placeholder}
+        onChange={e => { setQuery(e.target.value); setOpen(true); setHighlight(0) }}
+        onFocus={() => { setOpen(true); setQuery('') }}
+        onKeyDown={onKeyDown}
+        autoComplete="off"
+        style={{
+          width: '100%',
+          height: 38,
+          padding: '0 30px 0 12px',
+          border: '1.5px solid #e2e8f0',
+          borderRadius: 8,
+          fontSize: 13,
+          outline: 'none',
+          background: '#fff',
+          color: '#0f172a',
+        }}
+      />
+      <span
+        style={{
+          position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+          color: '#94a3b8', fontSize: 11, pointerEvents: 'none'
+        }}
+      >
+        ▼
+      </span>
+      {open && (
+        <div
+          ref={listRef}
+          style={{
+            position: 'absolute', zIndex: 60, left: 0, right: 0, marginTop: 4,
+            background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
+            boxShadow: '0 8px 24px rgba(15,23,42,0.12)', maxHeight: 240, overflowY: 'auto'
+          }}
+        >
+          {filtered.length === 0 ? (
+            <div style={{ padding: '10px 12px', fontSize: 12, color: '#94a3b8' }}>
+              Aucun résultat
+            </div>
+          ) : filtered.map((opt, idx) => (
+            <div
+              key={opt.value}
+              onMouseDown={e => { e.preventDefault(); choisir(opt) }}
+              onMouseEnter={() => setHighlight(idx)}
+              style={{
+                padding: '9px 12px',
+                fontSize: 13,
+                cursor: 'pointer',
+                background: idx === highlight ? '#eff6ff' : (String(opt.value) === String(value) ? '#f8fafc' : '#fff'),
+                color: idx === highlight ? '#1d4ed8' : '#0f172a',
+                borderBottom: idx < filtered.length - 1 ? '1px solid #f1f5f9' : 'none',
+              }}
+            >
+              {opt.label}
+            </div>
+          ))}
+        </div>
+      )}
+      {required && !value && (
+        <input
+          tabIndex={-1}
+          required
+          value=""
+          onChange={() => {}}
+          style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }}
+        />
+      )}
+    </div>
+  )
 }
 
 // Format Group display: DEVOWFS201 -> NTIC2-FS201, DEV101 -> NTIC2-DEV101, etc.
@@ -236,12 +375,15 @@ function EditModal({ seance, unites, salles, creneaux, professeurs, onClose, onS
 
         <div className="modal-field">
           <label>Formateur</label>
-          <select value={profId} onChange={e => setProfId(e.target.value)}>
-            <option value="">— Aucun / Garder actuel —</option>
-            {professeurs.map(p => (
-              <option key={p.id} value={p.id}>{p.nom_complet}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={profId}
+            onChange={setProfId}
+            options={[
+              { value: '', label: '— Aucun / Garder actuel —' },
+              ...professeurs.map(p => ({ value: p.id, label: p.nom_complet })),
+            ]}
+            placeholder="Rechercher un formateur…"
+          />
         </div>
 
         <div className="modal-field">
@@ -395,12 +537,15 @@ function AddModal({ prefill, semaine, unites, salles, creneaux, professeurs, gro
 
         <div className="modal-field">
           <label>Formateur</label>
-          <select value={profId} onChange={e => setProfId(e.target.value)}>
-            <option value="">— Sélectionner un formateur —</option>
-            {professeurs.map(p => (
-              <option key={p.id} value={p.id}>{p.nom_complet}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={profId}
+            onChange={setProfId}
+            options={[
+              { value: '', label: '— Sélectionner un formateur —' },
+              ...professeurs.map(p => ({ value: p.id, label: p.nom_complet })),
+            ]}
+            placeholder="Rechercher un formateur…"
+          />
         </div>
 
         <div className="modal-field">
@@ -1393,6 +1538,14 @@ function IndisponibiliteModal({ indispo, groupes, professeurs, semaines, onClose
 
   const handleSubmit = async (e) => {
     e?.preventDefault()
+    if (typeCible === 'groupe' && !groupeId) {
+      setError('Veuillez sélectionner un groupe.')
+      return
+    }
+    if (typeCible === 'professeur' && !profId) {
+      setError('Veuillez sélectionner un formateur.')
+      return
+    }
     setLoading(true)
     setError('')
     try {
@@ -1471,12 +1624,12 @@ function IndisponibiliteModal({ indispo, groupes, professeurs, semaines, onClose
           {typeCible === 'professeur' && (
             <div className="modal-field">
               <label>Formateur *</label>
-              <select value={profId} onChange={e => setProfId(e.target.value)} required>
-                <option value="">— Sélectionner —</option>
-                {professeurs.map(p => (
-                  <option key={p.id} value={p.id}>{p.nom_complet}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={profId}
+                onChange={setProfId}
+                options={professeurs.map(p => ({ value: p.id, label: p.nom_complet }))}
+                placeholder="Rechercher un formateur…"
+              />
             </div>
           )}
 
