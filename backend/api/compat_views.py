@@ -824,12 +824,12 @@ def indisponibilites_collection(request):
 
     if data.get('date_debut'):
         try:
-            date_debut = _date(data['date_debut'])
+            date_debut = _date_cls.fromisoformat(data['date_debut'])
         except ValueError:
             return _error('Date de début invalide.')
     if data.get('date_fin'):
         try:
-            date_fin = _date(data['date_fin'])
+            date_fin = _date_cls.fromisoformat(data['date_fin'])
         except ValueError:
             return _error('Date de fin invalide.')
 
@@ -908,6 +908,10 @@ def indisponibilite_detail(request, pk):
         if ind.type_cible == 'tous':
             ind.groupe = None
             ind.professeur = None
+        elif ind.type_cible == 'groupe':
+            ind.professeur = None
+        elif ind.type_cible == 'professeur':
+            ind.groupe = None
 
         ind.save()
         return JsonResponse(_indisponibilite_data(ind))
