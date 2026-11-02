@@ -7,6 +7,7 @@ aussi le CRUD complet des données de base : groupes, formateurs, salles,
 modules, filières et secteurs.
 """
 import json
+from datetime import date as _date_cls
 
 from django.db import IntegrityError, transaction
 from django.db.models import Count, ProtectedError
@@ -16,7 +17,7 @@ from django.views.decorators.csrf import csrf_exempt
 from core.models import (
     Semaine, Groupe, Professeur, Salle, Creneau,
     UniteEnseignement, Filiere, Secteur, TypeSalle, Module, Seance,
-    SeanceGroupe, SeanceProfesseur, AnneeScolaire, Semestre
+    SeanceGroupe, SeanceProfesseur, AnneeScolaire, Semestre, Indisponibilite
 )
 from solver.services import GenerateurEmploiDuTemps
 
@@ -174,6 +175,28 @@ def _filiere_data(f):
 
 def _secteur_data(s):
     return {'id': s.id, 'code': s.code, 'intitule': s.intitule}
+
+
+def _indisponibilite_data(i):
+    return {
+        'id': i.id,
+        'type_cible': i.type_cible,
+        'type_cible_libelle': i.get_type_cible_display(),
+        'groupe_id': i.groupe_id,
+        'groupe_code': i.groupe.code if i.groupe else None,
+        'professeur_id': i.professeur_id,
+        'professeur_nom': i.professeur.nom_complet if i.professeur else None,
+        'type_periode': i.type_periode,
+        'type_periode_libelle': i.get_type_periode_display(),
+        'semaine_id': i.semaine_id,
+        'semaine_numero': i.semaine.numero if i.semaine else None,
+        'jour': i.jour,
+        'date_debut': i.date_debut.isoformat() if i.date_debut else None,
+        'date_fin': i.date_fin.isoformat() if i.date_fin else None,
+        'motif': i.motif,
+        'actif': i.actif,
+        'date_creation': i.date_creation.isoformat() if i.date_creation else None,
+    }
 
 
 # ─── Santé / Référentiels ─────────────────────────────────────────────────────
@@ -744,6 +767,154 @@ def secteur_detail(request, pk):
             )
         secteur.delete()
         return JsonResponse({'success': True, 'message': f'Secteur {secteur.code} supprimé.'})
+
+    return _error('Méthode non autorisée.', 405)
+
+
+# ─── Indisponibilités / Congés ────────────────────────────────────────────────
+@csrf_exempt
+def indisponibilites_collection(request):
+    if request.method == 'GET':
+        qs = Indisponibilite.objects.select_related('groupe', 'professeur', 'semaine').all().order_by('-date_creation')
+        type_cible = request.GET.get('type_cible')
+        if type_cible:
+            qs = qs.filter(type_cible=type_cible)
+        return JsonResponse([_indisponibilite_data(i) for i in qs], safe=False)
+
+    if request.method != 'POST':
+        return _error('Méthode non autorisée.', 405)
+
+    data = _body(request)
+    type_cible = str(_value(data, 'type_cible', default='groupe')).strip()
+    type_periode = str(_value(data, 'type_periode', default='jour')).strip()
+    motif = str(_value(data, 'motif', default='')).strip()
+    actif = _bool(data.get('actif'), True)
+
+    groupe = None
+    professeur = None
+    if type_cible == 'groupe':
+        gid = _value(data, 'groupe', 'groupe_id')
+        if gid:
+            groupe = _get_or_none(Groupe, gid)
+            if not groupe:
+                return _error('Groupe introuvable.', 404)
+    elif type_cible == 'professeur':
+        pid = _value(data, 'professeur', 'professeur_id')
+        if pid:
+            professeur = _get_or_none(Professeur, pid)
+            if not professeur:
+                return _error('Formateur introuvable.', 404)
+
+    semaine = None
+    jour = None
+    date_debut = None
+    date_fin = None
+
+    sid = _value(data, 'semaine', 'semaine_id')
+    if sid:
+        semaine = _get_or_none(Semaine, sid)
+        if not semaine:
+            return _error('Semaine introuvable.', 404)
+
+    if 'jour' in data and data['jour'] not in (None, ''):
+        try:
+            jour = int(data['jour'])
+        except (ValueError, TypeError):
+            return _error('Jour invalide.')
+
+    if data.get('date_debut'):
+        try:
+            date_debut = _date(data['date_debut'])
+        except ValueError:
+            return _error('Date de début invalide.')
+    if data.get('date_fin'):
+        try:
+            date_fin = _date(data['date_fin'])
+        except ValueError:
+            return _error('Date de fin invalide.')
+
+    if type_periode == 'jour':
+        if not semaine or not jour:
+            return _error('Semaine et jour requis pour un jour libre.')
+    elif type_periode == 'semaine':
+        if not semaine:
+            return _error('Semaine requise pour une semaine libre.')
+    elif type_periode == 'periode':
+        if not date_debut or not date_fin:
+            return _error('Dates de début et de fin requises pour une période.')
+        if date_fin < date_debut:
+            return _error('La date de fin doit être après la date de début.')
+
+    if type_cible == 'tous':
+        groupe = None
+        professeur = None
+
+    ind = Indisponibilite.objects.create(
+        type_cible=type_cible,
+        groupe=groupe,
+        professeur=professeur,
+        type_periode=type_periode,
+        semaine=semaine,
+        jour=jour,
+        date_debut=date_debut,
+        date_fin=date_fin,
+        motif=motif,
+        actif=actif,
+    )
+    return JsonResponse(_indisponibilite_data(ind), status=201)
+
+
+@csrf_exempt
+def indisponibilite_detail(request, pk):
+    ind = _get_or_none(Indisponibilite, pk)
+    if not ind:
+        return _error('Indisponibilité introuvable.', 404)
+
+    if request.method == 'GET':
+        return JsonResponse(_indisponibilite_data(ind))
+
+    if request.method in ('PUT', 'PATCH'):
+        data = _body(request)
+        if 'type_cible' in data and data['type_cible']:
+            ind.type_cible = str(data['type_cible']).strip()
+        if 'type_periode' in data and data['type_periode']:
+            ind.type_periode = str(data['type_periode']).strip()
+        if 'motif' in data:
+            ind.motif = str(data['motif'] or '').strip()
+        if 'actif' in data:
+            ind.actif = _bool(data.get('actif'), ind.actif)
+
+        # cible
+        if 'groupe_id' in data or 'groupe' in data:
+            gid = _value(data, 'groupe', 'groupe_id')
+            ind.groupe = _get_or_none(Groupe, gid) if gid else None
+        if 'professeur_id' in data or 'professeur' in data:
+            pid = _value(data, 'professeur', 'professeur_id')
+            ind.professeur = _get_or_none(Professeur, pid) if pid else None
+
+        if 'semaine_id' in data or 'semaine' in data:
+            sid = _value(data, 'semaine', 'semaine_id')
+            ind.semaine = _get_or_none(Semaine, sid) if sid else None
+        if 'jour' in data:
+            val = data['jour']
+            ind.jour = int(val) if val not in (None, '') else None
+        if 'date_debut' in data:
+            val = data['date_debut']
+            ind.date_debut = _date_cls.fromisoformat(val) if val else None
+        if 'date_fin' in data:
+            val = data['date_fin']
+            ind.date_fin = _date_cls.fromisoformat(val) if val else None
+
+        if ind.type_cible == 'tous':
+            ind.groupe = None
+            ind.professeur = None
+
+        ind.save()
+        return JsonResponse(_indisponibilite_data(ind))
+
+    if request.method == 'DELETE':
+        ind.delete()
+        return JsonResponse({'success': True, 'message': 'Indisponibilité supprimée.'})
 
     return _error('Méthode non autorisée.', 405)
 

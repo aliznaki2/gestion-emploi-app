@@ -447,6 +447,89 @@ class UniteProfesseur(models.Model):
         return f"{self.professeur.nom_complet} -> {self.unite} ({self.mode})"
 
 
+class Indisponibilite(models.Model):
+    """Jour / semaine / periode libre pour un groupe ou un formateur."""
+
+    TYPE_CIBLE_GROUPE = 'groupe'
+    TYPE_CIBLE_PROFESSEUR = 'professeur'
+    TYPE_CIBLE_TOUS = 'tous'
+
+    TYPE_CIBLE_CHOICES = [
+        (TYPE_CIBLE_GROUPE, 'Groupe'),
+        (TYPE_CIBLE_PROFESSEUR, 'Formateur'),
+        (TYPE_CIBLE_TOUS, 'Tous les groupes'),
+    ]
+
+    TYPE_PERIODE_JOUR = 'jour'
+    TYPE_PERIODE_SEMAINE = 'semaine'
+    TYPE_PERIODE_PERIODE = 'periode'
+
+    TYPE_PERIODE_CHOICES = [
+        (TYPE_PERIODE_JOUR, 'Jour'),
+        (TYPE_PERIODE_SEMAINE, 'Semaine'),
+        (TYPE_PERIODE_PERIODE, 'Periode'),
+    ]
+
+    type_cible = models.CharField(
+        max_length=20, choices=TYPE_CIBLE_CHOICES, default=TYPE_CIBLE_GROUPE,
+        verbose_name=_("Cible"),
+    )
+    groupe = models.ForeignKey(
+        Groupe, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='indisponibilites', verbose_name=_("Groupe"),
+    )
+    professeur = models.ForeignKey(
+        Professeur, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='indisponibilites', verbose_name=_("Formateur"),
+    )
+    type_periode = models.CharField(
+        max_length=20, choices=TYPE_PERIODE_CHOICES, default=TYPE_PERIODE_JOUR,
+        verbose_name=_("Type de periode"),
+    )
+    semaine = models.ForeignKey(
+        Semaine, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='indisponibilites', verbose_name=_("Semaine"),
+    )
+    jour = models.PositiveSmallIntegerField(
+        null=True, blank=True, verbose_name=_("Jour (1=Lundi a 6=Samedi)"),
+    )
+    date_debut = models.DateField(null=True, blank=True, verbose_name=_("Date de debut"))
+    date_fin = models.DateField(null=True, blank=True, verbose_name=_("Date de fin"))
+    motif = models.CharField(max_length=200, blank=True, default='', verbose_name=_("Motif"))
+    actif = models.BooleanField(default=True, verbose_name=_("Actif"))
+    date_creation = models.DateTimeField(auto_now_add=True, verbose_name=_("Date de creation"))
+
+    class Meta:
+        verbose_name = _("Indisponibilite")
+        verbose_name_plural = _("Indisponibilites")
+        ordering = ['-date_creation']
+
+    def __str__(self):
+        cible = self.groupe.code if self.groupe else (self.professeur.nom_complet if self.professeur else 'Tous')
+        return f"{cible} - {self.get_type_periode_display()} ({self.motif or 'sans motif'})"
+
+    def clean(self):
+        super().clean()
+        if self.type_cible == self.TYPE_CIBLE_GROUPE and not self.groupe:
+            raise ValidationError("Un groupe est requis pour une indisponibilite de groupe.")
+        if self.type_cible == self.TYPE_CIBLE_PROFESSEUR and not self.professeur:
+            raise ValidationError("Un formateur est requis pour une indisponibilite de formateur.")
+        if self.type_cible == self.TYPE_CIBLE_TOUS:
+            self.groupe = None
+            self.professeur = None
+        if self.type_periode == self.TYPE_PERIODE_JOUR:
+            if not self.semaine or not self.jour:
+                raise ValidationError("Semaine et jour requis pour un jour libre.")
+        elif self.type_periode == self.TYPE_PERIODE_SEMAINE:
+            if not self.semaine:
+                raise ValidationError("Semaine requise pour une semaine libre.")
+        elif self.type_periode == self.TYPE_PERIODE_PERIODE:
+            if not self.date_debut or not self.date_fin:
+                raise ValidationError("Dates de debut et de fin requises pour une periode.")
+            if self.date_fin < self.date_debut:
+                raise ValidationError("La date de fin doit etre apres la date de debut.")
+
+
 # ─── 10. Passages (Modules Généraux Intensifs) ─────────────────────────────────
 class Passage(models.Model):
     """

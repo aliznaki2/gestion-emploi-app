@@ -1371,6 +1371,197 @@ function DeleteFiliereModal({ filiere, onClose, onConfirm, loading }) {
   )
 }
 
+// ─── Modal Créer / Modifier Indisponibilité ──────────────────────────────────
+function IndisponibiliteModal({ indispo, groupes, professeurs, semaines, onClose, onSave }) {
+  const isEdit = Boolean(indispo?.id)
+  const [typeCible, setTypeCible] = useState(indispo?.type_cible || 'groupe')
+  const [groupeId, setGroupeId] = useState(indispo?.groupe_id || '')
+  const [profId, setProfId] = useState(indispo?.professeur_id || '')
+  const [typePeriode, setTypePeriode] = useState(indispo?.type_periode || 'jour')
+  const [semaineId, setSemaineId] = useState(indispo?.semaine_id || (semaines?.[0]?.id || ''))
+  const [jour, setJour] = useState(indispo?.jour || 1)
+  const [dateDebut, setDateDebut] = useState(indispo?.date_debut || '')
+  const [dateFin, setDateFin] = useState(indispo?.date_fin || '')
+  const [motif, setMotif] = useState(indispo?.motif || '')
+  const [actif, setActif] = useState(indispo?.actif ?? true)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!semaineId && semaines && semaines.length > 0) setSemaineId(semaines[0].id)
+  }, [semaines, semaineId])
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault()
+    setLoading(true)
+    setError('')
+    try {
+      const payload = {
+        type_cible: typeCible,
+        type_periode: typePeriode,
+        motif: motif.trim(),
+        actif,
+      }
+      if (typeCible === 'groupe') payload.groupe_id = groupeId ? +groupeId : null
+      if (typeCible === 'professeur') payload.professeur_id = profId ? +profId : null
+      if (typePeriode === 'jour' || typePeriode === 'semaine') payload.semaine_id = semaineId ? +semaineId : null
+      if (typePeriode === 'jour') payload.jour = +jour
+      if (typePeriode === 'periode') {
+        payload.date_debut = dateDebut || null
+        payload.date_fin = dateFin || null
+      }
+      const res = isEdit
+        ? await apiFetch(`${API}/indisponibilites/${indispo.id}`, { method: 'PUT', body: JSON.stringify(payload) })
+        : await apiFetch(`${API}/indisponibilites`, { method: 'POST', body: JSON.stringify(payload) })
+      onSave(res, isEdit)
+    } catch (err) {
+      setError(err.message || 'Une erreur est survenue')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 18, color: '#0f2d5e' }}>
+            {isEdit ? "Modifier l'indisponibilité" : 'Ajouter une indisponibilité'}
+          </h3>
+          <button onClick={onClose} type="button"
+            style={{ fontSize: 20, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}>
+            ×
+          </button>
+        </div>
+
+        {error && <div className="alert-banner error" style={{ marginBottom: 16 }}><span>{error}</span></div>}
+
+        <form onSubmit={handleSubmit}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div className="modal-field">
+              <label>Cible</label>
+              <select value={typeCible} onChange={e => setTypeCible(e.target.value)}>
+                <option value="groupe">Groupe</option>
+                <option value="professeur">Formateur</option>
+                <option value="tous">Tous les groupes</option>
+              </select>
+            </div>
+            <div className="modal-field">
+              <label>Type de période</label>
+              <select value={typePeriode} onChange={e => setTypePeriode(e.target.value)}>
+                <option value="jour">Jour</option>
+                <option value="semaine">Semaine</option>
+                <option value="periode">Période</option>
+              </select>
+            </div>
+          </div>
+
+          {typeCible === 'groupe' && (
+            <div className="modal-field">
+              <label>Groupe *</label>
+              <select value={groupeId} onChange={e => setGroupeId(e.target.value)} required>
+                <option value="">— Sélectionner —</option>
+                {groupes.map(g => (
+                  <option key={g.id} value={g.id}>{g.code}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {typeCible === 'professeur' && (
+            <div className="modal-field">
+              <label>Formateur *</label>
+              <select value={profId} onChange={e => setProfId(e.target.value)} required>
+                <option value="">— Sélectionner —</option>
+                {professeurs.map(p => (
+                  <option key={p.id} value={p.id}>{p.nom_complet}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {(typePeriode === 'jour' || typePeriode === 'semaine') && (
+            <div className="modal-field">
+              <label>Semaine *</label>
+              <select value={semaineId} onChange={e => setSemaineId(e.target.value)} required>
+                {semaines.map(s => (
+                  <option key={s.id} value={s.id}>Semaine {s.numero}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {typePeriode === 'jour' && (
+            <div className="modal-field">
+              <label>Jour *</label>
+              <select value={jour} onChange={e => setJour(e.target.value)}>
+                <option value={1}>Lundi</option>
+                <option value={2}>Mardi</option>
+                <option value={3}>Mercredi</option>
+                <option value={4}>Jeudi</option>
+                <option value={5}>Vendredi</option>
+                <option value={6}>Samedi</option>
+              </select>
+            </div>
+          )}
+
+          {typePeriode === 'periode' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div className="modal-field">
+                <label>Date de début *</label>
+                <input type="date" value={dateDebut} onChange={e => setDateDebut(e.target.value)} required />
+              </div>
+              <div className="modal-field">
+                <label>Date de fin *</label>
+                <input type="date" value={dateFin} onChange={e => setDateFin(e.target.value)} required />
+              </div>
+            </div>
+          )}
+
+          <div className="modal-field">
+            <label>Motif</label>
+            <input type="text" placeholder="Ex: Vacances, Formation, Maladie..." value={motif}
+              onChange={e => setMotif(e.target.value)} />
+          </div>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#334155', marginBottom: 8 }}>
+            <input type="checkbox" checked={actif} onChange={e => setActif(e.target.checked)}
+              style={{ width: 16, height: 16, cursor: 'pointer' }} />
+            Actif
+          </label>
+
+          <div className="modal-actions" style={{ marginTop: 24 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>Annuler</button>
+            <button type="submit" className="btn btn-primary" disabled={loading}>
+              {loading ? 'Enregistrement…' : (isEdit ? 'Enregistrer' : 'Créer')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function DeleteIndispoModal({ indispo, onClose, onConfirm, loading }) {
+  if (!indispo) return null
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
+        <h3 style={{ margin: 0, fontSize: 18, color: '#dc2626' }}>Confirmer la suppression</h3>
+        <p style={{ margin: '16px 0 20px', fontSize: 14, color: '#334155', lineHeight: 1.5 }}>
+          Supprimer cette indisponibilité ({indispo.type_cible} — {indispo.type_periode_libelle || indispo.type_periode}) ?
+        </p>
+        <div className="modal-actions">
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>Annuler</button>
+          <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={loading}>
+            {loading ? 'Suppression…' : 'Oui, supprimer'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 export default function Dashboard({ role = 'admin', onLogout }) {
   const [activeNav, setActiveNav] = useState('emploi')
@@ -1437,6 +1628,12 @@ export default function Dashboard({ role = 'admin', onLogout }) {
   const [editingFiliere, setEditingFiliere] = useState(null)
   const [deletingFiliere, setDeletingFiliere] = useState(null)
   const [deletingFiliereLoading, setDeletingFiliereLoading] = useState(false)
+  const [indisponibilites, setIndisponibilites] = useState([])
+  const [indispoModalOpen, setIndispoModalOpen] = useState(false)
+  const [editingIndispo, setEditingIndispo] = useState(null)
+  const [deletingIndispo, setDeletingIndispo] = useState(null)
+  const [deletingIndispoLoading, setDeletingIndispoLoading] = useState(false)
+  const [indispoSearch, setIndispoSearch] = useState('')
   const [filiereSearch, setFiliereSearch] = useState('')
   const [filiereSecteurFilter, setFiliereSecteurFilter] = useState('all')
 
@@ -1459,7 +1656,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
           sw = await apiFetch(`${API}/semaines`)
         }
 
-        const [g, p, sl, cr, u, f, ts, hc, m, sec] = await Promise.all([
+        const [g, p, sl, cr, u, f, ts, hc, m, sec, ind] = await Promise.all([
           apiFetch(`${API}/groupes`),
           apiFetch(`${API}/professeurs`),
           apiFetch(`${API}/salles`),
@@ -1470,6 +1667,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
           apiFetch(`${API}/health`),
           apiFetch(`${API}/modules`).catch(() => []),
           apiFetch(`${API}/secteurs`).catch(() => []),
+          apiFetch(`${API}/indisponibilites`).catch(() => []),
         ])
         setSemaines(sw)
         setGroupes(g)
@@ -1481,6 +1679,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
         setTypesSalles(ts)
         setModules(m)
         setSecteurs(sec)
+        setIndisponibilites(ind)
         setDbStatus(hc.status)
         if (sw.length > 0) setSelectedSemaine(sw[0])
       } catch (e) {
@@ -1813,6 +2012,47 @@ export default function Dashboard({ role = 'admin', onLogout }) {
     })
   }, [filieres, filiereSearch, filiereSecteurFilter])
 
+  // Indisponibilité CRUD handlers
+  const handleSaveIndispo = (saved, isEdit) => {
+    if (isEdit) {
+      setIndisponibilites(prev => prev.map(i => i.id === saved.id ? saved : i))
+      addToast('Indisponibilité modifiée avec succès', 'success')
+    } else {
+      setIndisponibilites(prev => [saved, ...prev])
+      addToast('Indisponibilité créée avec succès', 'success')
+    }
+    setIndispoModalOpen(false)
+    setEditingIndispo(null)
+  }
+
+  const handleDeleteIndispoConfirm = async () => {
+    if (!deletingIndispo) return
+    setDeletingIndispoLoading(true)
+    try {
+      const res = await apiFetch(`${API}/indisponibilites/${deletingIndispo.id}`, { method: 'DELETE' })
+      setIndisponibilites(prev => prev.filter(i => i.id !== deletingIndispo.id))
+      addToast(res.message || 'Indisponibilité supprimée avec succès', 'success')
+      setDeletingIndispo(null)
+    } catch (err) {
+      addToast(err.message || 'Erreur lors de la suppression', 'error')
+    } finally {
+      setDeletingIndispoLoading(false)
+    }
+  }
+
+  const filteredIndisposList = useMemo(() => {
+    const q = (indispoSearch || '').trim().toLowerCase()
+    return indisponibilites.filter(i => {
+      if (!q) return true
+      return (
+        (i.motif && i.motif.toLowerCase().includes(q)) ||
+        (i.groupe_code && i.groupe_code.toLowerCase().includes(q)) ||
+        (i.professeur_nom && i.professeur_nom.toLowerCase().includes(q)) ||
+        (i.type_cible && i.type_cible.toLowerCase().includes(q))
+      )
+    })
+  }, [indisponibilites, indispoSearch])
+
   // Groupes structured by sections (DEV 1ère, DEV 2ème, ID 1ère, ID 2ème, GE, etc.)
   const groupedSections = useMemo(() => {
     // 1. Group groups by section ID
@@ -1974,6 +2214,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
             { id: 'salles',  label: 'Salles' },
             { id: 'modules', label: 'Modules' },
             { id: 'filieres', label: 'Filières' },
+            { id: 'indispos', label: 'Congés / Jours libres' },
           ].map(item => (
             <button
               key={item.id}
@@ -2007,6 +2248,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
             {activeNav === 'salles'  && 'Salles et Locaux'}
             {activeNav === 'modules' && 'Gestion des Modules'}
             {activeNav === 'filieres' && 'Gestion des Filières'}
+            {activeNav === 'indispos' && 'Congés & Jours libres'}
           </h1>
           <div className="topbar-right">
             <span style={{ fontSize: 13, color: '#475569', fontWeight: 500 }}>
@@ -3497,6 +3739,144 @@ export default function Dashboard({ role = 'admin', onLogout }) {
               </div>
             </div>
           )}
+          {/* ── INDISPONIBILITÉS VIEW ── */}
+          {activeNav === 'indispos' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <div style={{
+                background: '#fff', borderRadius: 12, padding: '20px 24px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1px solid #e2e8f0',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                flexWrap: 'wrap', gap: 16
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <h2 style={{ margin: 0, fontSize: 20, color: '#0f2d5e', fontWeight: 700 }}>
+                      Congés & Jours libres
+                    </h2>
+                    <span style={{
+                      background: '#fef3c7', color: '#92400e', fontSize: 12, fontWeight: 700,
+                      padding: '3px 10px', borderRadius: 20, border: '1px solid #fde68a'
+                    }}>
+                      {indisponibilites.length} entrées
+                    </span>
+                  </div>
+                  <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+                    Jours / semaines / périodes libres pour un groupe, un formateur ou tous les groupes — pris en compte par le planificateur
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => { setEditingIndispo(null); setIndispoModalOpen(true) }}
+                  style={{ padding: '0 20px', height: 40, fontSize: 13, boxShadow: '0 2px 6px rgba(26,95,168,0.25)' }}
+                >
+                  + Ajouter
+                </button>
+              </div>
+
+              <div style={{
+                background: '#fff', borderRadius: 12, padding: '16px 20px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1px solid #e2e8f0',
+                display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap'
+              }}>
+                <div style={{ flex: '1 1 260px', minWidth: 200 }}>
+                  <input
+                    type="text"
+                    placeholder="Rechercher (motif, groupe, formateur...)"
+                    value={indispoSearch}
+                    onChange={e => setIndispoSearch(e.target.value)}
+                    style={{
+                      width: '100%', height: 38, padding: '0 12px', border: '1.5px solid #e2e8f0',
+                      borderRadius: 8, fontSize: 13, outline: 'none', background: '#f8fafc'
+                    }}
+                  />
+                </div>
+                <div style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b' }}>
+                  Affichage de <strong>{filteredIndisposList.length}</strong> sur {indisponibilites.length}
+                </div>
+              </div>
+
+              <div style={{
+                background: '#fff', borderRadius: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0', overflow: 'hidden'
+              }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569' }}>
+                        <th style={{ padding: '14px 18px' }}>Cible</th>
+                        <th style={{ padding: '14px 18px' }}>Période</th>
+                        <th style={{ padding: '14px 18px' }}>Détail</th>
+                        <th style={{ padding: '14px 18px' }}>Motif</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>Actif</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredIndisposList.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
+                            <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>Aucune indisponibilité</div>
+                            <div style={{ fontSize: 13, marginTop: 4 }}>Cliquez sur « + Ajouter » pour en créer une</div>
+                          </td>
+                        </tr>
+                      ) : filteredIndisposList.map(i => (
+                        <tr
+                          key={i.id}
+                          style={{ borderBottom: '1px solid #f1f5f9' }}
+                          onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                        >
+                          <td style={{ padding: '14px 18px', fontWeight: 600, color: '#0f172a' }}>
+                            {i.type_cible === 'tous' ? 'Tous les groupes' :
+                             i.type_cible === 'groupe' ? (i.groupe_code || '—') :
+                             (i.professeur_nom || '—')}
+                          </td>
+                          <td style={{ padding: '14px 18px', color: '#475569' }}>
+                            {i.type_periode_libelle || i.type_periode}
+                          </td>
+                          <td style={{ padding: '14px 18px', color: '#64748b', fontSize: 12 }}>
+                            {i.type_periode === 'jour' && `Sem. ${i.semaine_numero} — Jour ${i.jour}`}
+                            {i.type_periode === 'semaine' && `Semaine ${i.semaine_numero}`}
+                            {i.type_periode === 'periode' && `${i.date_debut} → ${i.date_fin}`}
+                          </td>
+                          <td style={{ padding: '14px 18px', color: '#475569' }}>{i.motif || '—'}</td>
+                          <td style={{ padding: '14px 18px', textAlign: 'center' }}>
+                            {i.actif ? '✓' : '—'}
+                          </td>
+                          <td style={{ padding: '14px 18px', textAlign: 'right' }}>
+                            <div style={{ display: 'inline-flex', gap: 6 }}>
+                              <button
+                                type="button"
+                                onClick={() => { setEditingIndispo(i); setIndispoModalOpen(true) }}
+                                style={{
+                                  padding: '6px 12px', borderRadius: 6, border: '1px solid #bfdbfe',
+                                  background: '#eff6ff', color: '#1d4ed8', fontSize: 12, fontWeight: 600, cursor: 'pointer'
+                                }}
+                              >
+                                Modifier
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeletingIndispo(i)}
+                                style={{
+                                  padding: '6px 12px', borderRadius: 6, border: '1px solid #fecaca',
+                                  background: '#fef2f2', color: '#b91c1c', fontSize: 12, fontWeight: 600, cursor: 'pointer'
+                                }}
+                              >
+                                Supprimer
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
       </main>
 
@@ -3647,6 +4027,29 @@ export default function Dashboard({ role = 'admin', onLogout }) {
           loading={deletingFiliereLoading}
           onClose={() => setDeletingFiliere(null)}
           onConfirm={handleDeleteFiliereConfirm}
+        />
+      )}
+
+      {indispoModalOpen && (
+        <IndisponibiliteModal
+          indispo={editingIndispo}
+          groupes={groupes}
+          professeurs={professeurs}
+          semaines={semaines}
+          onClose={() => {
+            setIndispoModalOpen(false)
+            setEditingIndispo(null)
+          }}
+          onSave={handleSaveIndispo}
+        />
+      )}
+
+      {deletingIndispo && (
+        <DeleteIndispoModal
+          indispo={deletingIndispo}
+          loading={deletingIndispoLoading}
+          onClose={() => setDeletingIndispo(null)}
+          onConfirm={handleDeleteIndispoConfirm}
         />
       )}
     </div>

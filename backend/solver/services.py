@@ -16,6 +16,7 @@ from core.models import (
 from .heures import CalculateurHeures
 from .decoupage import DecoupeurSeances
 from .placement import ModelePlacement, ResultatPlacement
+from .indisponibilites import resoudre_indisponibilites, creneaux_par_jour
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +69,25 @@ class GenerateurEmploiDuTemps:
                 groupes_cibles = list(Groupe.objects.filter(id__in=groupes_ids, actif=True))
                 self._log(Journal.NIVEAU_INFO, f"{len(groupes_cibles)} groupe(s) ciblé(s) pour la génération.")
 
+            # Indisponibilités (congés / jours libres) de la semaine
+            groupes_off_semaine, groupes_jours_off, profs_jours_off = resoudre_indisponibilites(self.semaine)
+            if groupes_off_semaine:
+                self._log(
+                    Journal.NIVEAU_INFO,
+                    f"{len(groupes_off_semaine)} groupe(s) entièrement indisponible(s) cette semaine.",
+                )
+
+            if groupes_cibles is not None:
+                groupes_cibles = [g for g in groupes_cibles if g.id not in groupes_off_semaine]
+
             # 2. Phase 1 : Calcul des heures
             self._log(Journal.NIVEAU_INFO, "Phase 1 : Calcul des volumes horaires hebdomadaires.")
             calculateur = CalculateurHeures(semaine=self.semaine)
-            previsions = calculateur.calculer(groupes_cibles=groupes_cibles)
+            previsions = calculateur.calculer(
+                groupes_cibles=groupes_cibles,
+                groupes_off_semaine=groupes_off_semaine,
+                profs_jours_off=profs_jours_off,
+            )
 
             if not previsions:
                 msg = "Aucun module ou volume horaire restant à planifier pour cette semaine."
@@ -123,7 +139,21 @@ class GenerateurEmploiDuTemps:
                 for sg in s.seance_groupes.all():
                     occupations_groupes.add((s.creneau_id, sg.groupe_id))
 
-            # Disponibilités formateurs
+            # Indisponibilités : bloquer les créneaux concernés pour les groupes et formateurs
+            creneaux_par_j = creneaux_par_jour(creneaux)
+            for gid, jours in groupes_jours_off.items():
+                if gid in groupes_off_semaine:
+                    # déjà exclu de la génération, mais on bloque tout de même
+                    for c in creneaux:
+                        occupations_groupes.add((c.id, gid))
+                    continue
+                for j in jours:
+                    for cid in creneaux_par_j.get(j, []):
+                        occupations_groupes.add((cid, gid))
+            for pid, jours in profs_jours_off.items():
+                for j in jours:
+                    for cid in creneaux_par_j.get(j, []):
+                        occupations_profs.add((cid, pid))
             dispos_qs = Disponibilite.objects.select_related('professeur', 'creneau')
             disponibilites_map = {
                 (d.professeur_id, d.creneau_id): d.etat

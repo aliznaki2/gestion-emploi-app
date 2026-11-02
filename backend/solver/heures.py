@@ -62,10 +62,14 @@ class CalculateurHeures:
             return 0.0
         return max(2.5, round(val / 2.5) * 2.5)
 
-    def calculer(self, groupes_cibles: Optional[List[Groupe]] = None) -> List[UnitePrevision]:
+    def calculer(self, groupes_cibles: Optional[List[Groupe]] = None,
+                 groupes_off_semaine: Optional[set] = None,
+                 profs_jours_off: Optional[Dict[int, set]] = None) -> List[UnitePrevision]:
         """
         Calcule les volumes horaires hebdomadaires pour toutes les unités concernées.
         """
+        groupes_off_semaine = groupes_off_semaine or set()
+        profs_jours_off = profs_jours_off or {}
         num_semaine = self.semaine.numero
         semaines_restantes = max(1, self.total_semaines - num_semaine + 1)
 
@@ -75,6 +79,11 @@ class CalculateurHeures:
         else:
             groupes = list(groupes_cibles)
         groupe_ids_autorises = {g.id for g in groupes}
+
+        # Exclure les groupes entièrement indisponibles cette semaine
+        if groupes_off_semaine:
+            groupes = [g for g in groupes if g.id not in groupes_off_semaine]
+            groupe_ids_autorises = {g.id for g in groupes}
 
         # 2. Heures déjà planifiées à conserver (séances validées ou verrouillées)
         heures_planifiees_unite: Dict[int, float] = defaultdict(float)
@@ -150,6 +159,13 @@ class CalculateurHeures:
                     min(candidats, key=lambda pid: (attribution_count[pid], pid))
                 ]
                 attribution_count[prof_ids[0]] += 1
+
+            # Si tous les formateurs de l'unité sont indisponibles toute la semaine,
+            # on ne planifie pas cette unité pour cette semaine.
+            if prof_ids and profs_jours_off and all(
+                len(profs_jours_off.get(pid, ())) >= 6 for pid in prof_ids
+            ):
+                continue
 
             # Déduplication : même module, même fusion, mêmes groupes et mêmes profs
             cle = (ue.module_id, ue.code_fusion or '', tuple(groupe_ids), tuple(prof_ids))

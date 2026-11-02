@@ -22,6 +22,7 @@ from .compat_views import (
     modules_collection, module_detail,
     filieres_collection, filiere_detail,
     secteurs_collection, secteur_detail,
+    indisponibilites_collection, indisponibilite_detail,
 )
 
 router = DefaultRouter()
@@ -63,6 +64,8 @@ urlpatterns = [
     path('filieres/<int:pk>', filiere_detail, name='compat_filiere_detail'),
     path('secteurs', secteurs_collection, name='compat_secteurs'),
     path('secteurs/<int:pk>', secteur_detail, name='compat_secteur_detail'),
+    path('indisponibilites', indisponibilites_collection, name='compat_indisponibilites'),
+    path('indisponibilites/<int:pk>', indisponibilite_detail, name='compat_indisponibilite_detail'),
 
     # ─── Emploi du temps, statistiques & actions ─────────────────────────────
     path('emploi-du-temps/<int:semaine_id>', get_emploi_du_temps_compat, name='compat_emploi_du_temps'),
