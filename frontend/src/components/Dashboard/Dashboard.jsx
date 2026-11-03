@@ -1317,8 +1317,8 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-box modal-scrollable" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
-        <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 0 }}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <h3 style={{ margin: 0, fontSize: 18, color: '#0f2d5e' }}>
             {isEdit ? `Modifier le module ${module.code}` : 'Ajouter un Module'}
           </h3>
@@ -1328,10 +1328,9 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
           </button>
         </div>
 
-        {error && <div className="alert-banner error" style={{ margin: '16px 28px 0' }}><span>{error}</span></div>}
+        {error && <div className="alert-banner error" style={{ marginBottom: 16 }}><span>{error}</span></div>}
 
-        <form onSubmit={handleSubmit} className="modal-form">
-          <div className="modal-body">
+        <form onSubmit={handleSubmit}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div className="modal-field">
               <label>Code Module *</label>
@@ -1419,9 +1418,8 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
               Aucune sélection = toutes les salles physiques sont autorisées.
             </div>
           </div>
-          </div>
 
-          <div className="modal-actions">
+          <div className="modal-actions" style={{ marginTop: 24 }}>
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>Annuler</button>
             <button type="submit" className="btn btn-primary" disabled={loading}>
               {loading ? 'Enregistrement…' : (isEdit ? 'Enregistrer les modifications' : 'Créer le module')}
