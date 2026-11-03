@@ -259,12 +259,14 @@ class CalculateurHeures:
                 if autorise_2_5:
                     reserve = self.DUREE_CRENEAU
                     pas = self.DUREE_CRENEAU
+                    disponible_enseignement = max(0.0, dispo - reserve)
+                    plafond = (disponible_enseignement // pas) * pas
                 else:
-                    multiple_de_5 = abs(dispo / 5.0 - round(dispo / 5.0)) < 1e-6
-                    reserve = 5.0 if multiple_de_5 else self.DUREE_CRENEAU
-                    pas = 5.0
-                disponible_enseignement = max(0.0, dispo - reserve)
-                plafond = (disponible_enseignement // pas) * pas
+                    # Module en blocs de 5 h uniquement : on réserve un bloc
+                    # complet (5 h) pour la semaine de l'EFM. Aucun résidu de
+                    # 2,5 h ne doit être planifié avant ou pendant l'EFM.
+                    disponible_enseignement = max(0.0, dispo - 5.0)
+                    plafond = self.plafond_multiple_de_5(disponible_enseignement)
             plafond_unite[unite_id] = plafond
 
             unite_est_semaine_efm[unite_id] = est_semaine_efm
@@ -310,16 +312,11 @@ class CalculateurHeures:
                     heures_arrondies = min(heures_arrondies, self.plafond_multiple_de_5(plafond))
                     unite_heures[unite_id] = heures_arrondies
 
-                    # Semaine de l'EFM : on termine le module. S'il reste un
-                    # résidu de 2,5 h, il est planifié comme séance d'examen
-                    # (même si le module n'autorise pas les 2,5 h en cours).
+                    # Semaine de l'EFM : on termine le module en blocs de 5 h.
+                    # Un éventuel résidu de 2,5 h n'est pas planifié : aucune
+                    # séance isolée de 2,5 h pour un module qui ne l'autorise pas.
                     if est_semaine_efm and efm_actif:
-                        enseignement = self.plafond_multiple_de_5(dispo)
-                        if dispo - enseignement > 1e-6:
-                            unite_heures[unite_id] = enseignement + self.DUREE_CRENEAU
-                            unite_efm_simple[unite_id] = True
-                        else:
-                            unite_heures[unite_id] = enseignement
+                        unite_heures[unite_id] = self.plafond_multiple_de_5(dispo)
 
         # Charges courantes
         charge_prof: Dict[int, float] = defaultdict(float)

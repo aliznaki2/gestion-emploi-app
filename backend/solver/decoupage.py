@@ -100,9 +100,10 @@ class DecoupeurSeances:
 
                 heures_a_traiter -= self.DUREE_BLOC
 
-            # Séance simple résiduelle de 2.5h — si le module l'autorise.
-            # Exception : le résidu de 2,5 h de la semaine de l'EFM (efm_simple).
-            if (autorise_2_5 or prev.efm_simple) and heures_a_traiter >= self.DUREE_SEANCE:
+            # Séance simple résiduelle de 2.5h — strictement réservée aux modules
+            # qui autorisent les séances de 2,5 h. Un module décoché ne doit
+            # jamais produire de séance isolée de 2,5 h (y compris pour l'EFM).
+            if autorise_2_5 and heures_a_traiter >= self.DUREE_SEANCE:
                 self._seance_counter += 1
                 s_simple = SeanceAPlacer(
                     id=self._seance_counter,
