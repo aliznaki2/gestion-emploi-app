@@ -79,7 +79,8 @@ class ModuleSerializer(serializers.ModelSerializer):
         model = Module
         fields = [
             'id', 'code', 'intitule', 'type_module', 'regional',
-            'efm_fin_module', 'seances_2_5_autorisees', 'types_salles_compatibles',
+            'efm_fin_module', 'date_efm', 'seances_2_5_autorisees',
+            'types_salles_compatibles',
         ]
 
 

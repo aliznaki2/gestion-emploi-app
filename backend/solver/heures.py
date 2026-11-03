@@ -31,6 +31,8 @@ class UnitePrevision:
     code_fusion: Optional[str] = None
     est_passage: bool = False
     derniere_semaine: bool = False
+    jour_efm: Optional[int] = None
+    efm_simple: bool = False
 
 
 class CalculateurHeures:
@@ -88,6 +90,21 @@ class CalculateurHeures:
         num_semaine = self.semaine.numero
         semaines_restantes = max(1, self.total_semaines - num_semaine + 1)
 
+        # Calendrier des semaines pour situer la date de l'EFM d'un module.
+        semaines_dates = list(
+            Semaine.objects.filter(annee_scolaire=self.semaine.annee_scolaire)
+            .exclude(date_debut__isnull=True)
+            .exclude(date_fin__isnull=True)
+            .values_list('numero', 'date_debut', 'date_fin')
+        )
+
+        def semaine_de(date_efm) -> Optional[int]:
+            """Numéro de la semaine pédagogique contenant une date donnée."""
+            for numero, debut, fin in semaines_dates:
+                if debut <= date_efm <= fin:
+                    return numero
+            return None
+
         # 1. Sélectionner les groupes actifs
         if groupes_cibles is None:
             groupes = list(Groupe.objects.filter(actif=True).select_related('filiere'))
@@ -136,6 +153,17 @@ class CalculateurHeures:
         unite_groupes_map: Dict[int, List[int]] = {}
         unite_profs_map: Dict[int, List[int]] = {}
         unite_is_passage_map: Dict[int, bool] = {}
+        unite_est_semaine_efm: Dict[int, bool] = {}
+        unite_jour_efm: Dict[int, Optional[int]] = {}
+        unite_efm_simple: Dict[int, bool] = {}
+        plafond_unite: Dict[int, float] = {}
+
+        # Unités ayant déjà reçu un EFM dans une autre semaine (évite les doublons).
+        unites_avec_efm = set(
+            Seance.objects.filter(nature=Seance.NATURE_EXAMEN)
+            .exclude(semaine=self.semaine)
+            .values_list('unite_id', flat=True)
+        )
 
         # Initialisation + déduplication des unités strictement identiques
         profs_actifs = sorted(
@@ -208,6 +236,45 @@ class CalculateurHeures:
 
             module = ue.module
             autorise_2_5 = bool(getattr(module, 'peut_avoir_seance_2_5', False))
+
+            # Période d'étude : si une date d'EFM est fixée, le module doit être
+            # terminé dans la semaine qui contient cette date.
+            date_efm = getattr(module, 'date_efm', None)
+            semaine_efm = semaine_de(date_efm) if date_efm else None
+            est_semaine_efm = semaine_efm is not None and semaine_efm == num_semaine
+            efm_actif = bool(getattr(module, 'efm_fin_module', False)) and semaine_efm is not None
+
+            if semaine_efm is not None and num_semaine < semaine_efm:
+                # Semaines d'enseignement restantes avant la semaine de l'EFM.
+                semaines_pour_module = max(1, semaine_efm - num_semaine)
+            elif semaine_efm is not None:
+                semaines_pour_module = 1
+            else:
+                semaines_pour_module = semaines_restantes
+
+            # Plafond : on réserve de quoi planifier l'EFM dans sa semaine afin
+            # que le module ne se termine pas avant la date prévue.
+            plafond = dispo
+            if efm_actif and num_semaine < semaine_efm:
+                if autorise_2_5:
+                    reserve = self.DUREE_CRENEAU
+                    pas = self.DUREE_CRENEAU
+                else:
+                    multiple_de_5 = abs(dispo / 5.0 - round(dispo / 5.0)) < 1e-6
+                    reserve = 5.0 if multiple_de_5 else self.DUREE_CRENEAU
+                    pas = 5.0
+                disponible_enseignement = max(0.0, dispo - reserve)
+                plafond = (disponible_enseignement // pas) * pas
+            plafond_unite[unite_id] = plafond
+
+            unite_est_semaine_efm[unite_id] = est_semaine_efm
+            jour_efm = None
+            if est_semaine_efm and date_efm and self.semaine.date_debut:
+                jour = (date_efm - self.semaine.date_debut).days + 1
+                if 1 <= jour <= 6:
+                    jour_efm = jour
+            unite_jour_efm[unite_id] = jour_efm
+
             if module.type_module == 'general':
                 # Module général : Vérification du Passage actif
                 active_passage = ue.passages.filter(
@@ -217,13 +284,13 @@ class CalculateurHeures:
                 ).first()
 
                 if active_passage:
-                    heures = min(float(active_passage.intensite_h), dispo)
+                    heures = min(float(active_passage.intensite_h), plafond)
                     if autorise_2_5:
                         unite_heures[unite_id] = self.round_to_creneau(heures)
                     else:
                         unite_heures[unite_id] = min(
                             self.round_to_5_only(heures),
-                            self.plafond_multiple_de_5(dispo),
+                            self.plafond_multiple_de_5(plafond),
                         )
                     unite_is_passage_map[unite_id] = True
                 else:
@@ -231,17 +298,28 @@ class CalculateurHeures:
                     unite_heures[unite_id] = 0.0
             else:
                 # Module technique : Formule basée sur les semaines restantes
-                heures_hebdo_brut = dispo / semaines_restantes
+                heures_hebdo_brut = plafond / semaines_pour_module
                 if autorise_2_5:
                     heures_arrondies = self.round_to_5(heures_hebdo_brut)
-                    heures_arrondies = min(heures_arrondies, dispo)
+                    heures_arrondies = min(heures_arrondies, plafond)
                     # Arrondir au multiple de 2.5h (créneau)
                     unite_heures[unite_id] = self.round_to_creneau(heures_arrondies)
                 else:
                     # Séances de 5 h uniquement : multiple de 5 sans dépasser le reste
                     heures_arrondies = self.round_to_5_only(heures_hebdo_brut)
-                    heures_arrondies = min(heures_arrondies, self.plafond_multiple_de_5(dispo))
+                    heures_arrondies = min(heures_arrondies, self.plafond_multiple_de_5(plafond))
                     unite_heures[unite_id] = heures_arrondies
+
+                    # Semaine de l'EFM : on termine le module. S'il reste un
+                    # résidu de 2,5 h, il est planifié comme séance d'examen
+                    # (même si le module n'autorise pas les 2,5 h en cours).
+                    if est_semaine_efm and efm_actif:
+                        enseignement = self.plafond_multiple_de_5(dispo)
+                        if dispo - enseignement > 1e-6:
+                            unite_heures[unite_id] = enseignement + self.DUREE_CRENEAU
+                            unite_efm_simple[unite_id] = True
+                        else:
+                            unite_heures[unite_id] = enseignement
 
         # Charges courantes
         charge_prof: Dict[int, float] = defaultdict(float)
@@ -283,12 +361,18 @@ class CalculateurHeures:
                     return False
             return True
 
-        def ajouter(uid: int, increment: float) -> None:
+        def ajouter(uid: int, increment: float) -> float:
+            plafond = plafond_unite.get(uid)
+            if plafond is not None:
+                increment = min(increment, plafond - unite_heures.get(uid, 0.0))
+            if increment <= 1e-6:
+                return 0.0
             unite_heures[uid] += increment
             for pid in unite_profs_map.get(uid, []):
                 charge_prof[pid] += increment
             for gid in unite_groupes_map.get(uid, []):
                 total_groupe[gid] += increment
+            return increment
 
         def retirer(uid: int, decrement: float) -> None:
             decrement = min(decrement, unite_heures[uid])
@@ -341,7 +425,7 @@ class CalculateurHeures:
 
                 for uid in uids_techniques:
                     while deficit >= self.DUREE_CRENEAU - 1e-6:
-                        reste = dispo_unite.get(uid, 0.0) - unite_heures.get(uid, 0.0)
+                        reste = plafond_unite.get(uid, dispo_unite.get(uid, 0.0)) - unite_heures.get(uid, 0.0)
                         step = prochain_pas(uid, reste, deficit)
                         if step <= 0:
                             break
@@ -349,8 +433,10 @@ class CalculateurHeures:
                             step = pas_min(uid)
                         if not capacite_ok(uid, step):
                             break
-                        ajouter(uid, step)
-                        deficit -= step
+                        ajoute = ajouter(uid, step)
+                        if ajoute <= 0:
+                            break
+                        deficit -= ajoute
 
             # Si au-delà de l'objectif maximal, on réduit les modules techniques
             elif total_h > self.OBJECTIF_MAX_HEURES:
@@ -426,7 +512,7 @@ class CalculateurHeures:
 
             for uid in uids:
                 while deficit >= self.DUREE_CRENEAU - 1e-6:
-                    reste = dispo_unite.get(uid, 0.0) - unite_heures.get(uid, 0.0)
+                    reste = plafond_unite.get(uid, dispo_unite.get(uid, 0.0)) - unite_heures.get(uid, 0.0)
                     step = prochain_pas(uid, reste, deficit)
                     if step <= 0:
                         break
@@ -448,8 +534,10 @@ class CalculateurHeures:
                     if not capacite_ok(uid, step):
                         break
 
-                    ajouter(uid, step)
-                    deficit -= step
+                    ajoute = ajouter(uid, step)
+                    if ajoute <= 0:
+                        break
+                    deficit -= ajoute
 
         # ─── 7. Construction des prévisions finales ────────────────────────────
         previsions: List[UnitePrevision] = []
@@ -458,12 +546,26 @@ class CalculateurHeures:
                 continue
             ue = unite_obj_map[uid]
             dispo_initiale = dispo_unite.get(uid, 0.0)
-            # Le module se termine cette semaine si, après planification, il ne
-            # reste au plus qu'un créneau de 2,5 h (résidu éventuel de l'EFM).
-            derniere_semaine = (
-                dispo_initiale > 0
-                and (dispo_initiale - heures) <= self.DUREE_CRENEAU + 1e-6
-            )
+            semaine_efm = None
+            date_efm = getattr(ue.module, 'date_efm', None)
+            if date_efm:
+                semaine_efm = semaine_de(date_efm)
+
+            if uid in unites_avec_efm:
+                # Un EFM existe déjà pour cette unité dans une autre semaine.
+                derniere_semaine = False
+            elif semaine_efm is not None:
+                # Avec une date d'EFM, l'examen n'est marqué que dans la
+                # semaine de l'EFM (ou après si le module est en retard).
+                derniere_semaine = num_semaine >= semaine_efm
+            else:
+                # Sans date : le module se termine cette semaine s'il ne reste
+                # au plus qu'un créneau de 2,5 h (résidu éventuel de l'EFM).
+                derniere_semaine = (
+                    dispo_initiale > 0
+                    and (dispo_initiale - heures) <= self.DUREE_CRENEAU + 1e-6
+                )
+
             previsions.append(
                 UnitePrevision(
                     unite_id=uid,
@@ -475,6 +577,8 @@ class CalculateurHeures:
                     code_fusion=ue.code_fusion,
                     est_passage=unite_is_passage_map[uid],
                     derniere_semaine=derniere_semaine,
+                    jour_efm=unite_jour_efm.get(uid),
+                    efm_simple=unite_efm_simple.get(uid, False),
                 )
             )
 

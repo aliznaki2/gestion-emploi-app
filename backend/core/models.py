@@ -163,6 +163,14 @@ class Module(models.Model):
         help_text=_("La dernière séance du module est marquée « EFM » dans "
                     "l'emploi du temps afin que les stagiaires la repèrent."),
     )
+    date_efm = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Date de l'EFM"),
+        help_text=_("Date prévue de l'examen de fin de module. Le moteur "
+                    "répartit les heures restantes pour terminer le module "
+                    "avant cette date et place l'EFM ce jour-là."),
+    )
     seances_2_5_autorisees = models.BooleanField(
         default=False,
         verbose_name=_("Autoriser les séances de 2,5 h"),

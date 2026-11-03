@@ -1266,6 +1266,7 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
   const [typeModule, setTypeModule] = useState(module?.type_module || 'technique')
   const [regional, setRegional] = useState(module?.regional ?? false)
   const [efmFinModule, setEfmFinModule] = useState(module?.efm_fin_module ?? true)
+  const [dateEfm, setDateEfm] = useState(module?.date_efm || '')
   const [seances25, setSeances25] = useState(module?.seances_2_5_autorisees ?? false)
   const estM10 = code.trim().toUpperCase().startsWith('M10')
   const [typesCompatibles, setTypesCompatibles] = useState(
@@ -1299,6 +1300,7 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
         type_module: typeModule,
         regional,
         efm_fin_module: efmFinModule,
+        date_efm: dateEfm || null,
         seances_2_5_autorisees: estM10 ? false : seances25,
         types_salles_compatibles: typesCompatibles.map(Number),
       }
@@ -1364,6 +1366,20 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
           <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, lineHeight: 1.5 }}>
             La dernière séance du module sera affichée « EFM » dans l'emploi du temps
             pour que les stagiaires la repèrent.
+          </div>
+
+          <div className="modal-field">
+            <label>Date de l'EFM (optionnel)</label>
+            <input
+              type="date"
+              value={dateEfm}
+              disabled={!efmFinModule}
+              onChange={e => setDateEfm(e.target.value)}
+            />
+          </div>
+          <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, lineHeight: 1.5 }}>
+            Si une date est fixée, le moteur répartit les heures restantes pour
+            terminer le module dans cette semaine et place l'EFM ce jour-là.
           </div>
 
           <label style={{
@@ -3766,10 +3782,20 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                           <td style={{ padding: '14px 18px', textAlign: 'center' }}>
                             {m.efm_fin_module ? (
                               <span style={{
-                                background: '#fee2e2', color: '#b91c1c',
-                                padding: '3px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700
+                                display: 'inline-flex', flexDirection: 'column',
+                                alignItems: 'center', gap: 3
                               }}>
-                                EFM
+                                <span style={{
+                                  background: '#fee2e2', color: '#b91c1c',
+                                  padding: '3px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700
+                                }}>
+                                  EFM
+                                </span>
+                                {m.date_efm && (
+                                  <span style={{ fontSize: 11, color: '#475569' }}>
+                                    {formatDate(m.date_efm)}
+                                  </span>
+                                )}
                               </span>
                             ) : '—'}
                           </td>

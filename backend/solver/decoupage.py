@@ -24,6 +24,7 @@ class SeanceAPlacer:
     mode: str = 'presentiel'
     est_fusion: bool = False
     code_fusion: Optional[str] = None
+    jour_efm: Optional[int] = None       # Jour précis (1-6) où placer l'EFM
 
 
 class DecoupeurSeances:
@@ -101,7 +102,8 @@ class DecoupeurSeances:
 
             # Séance simple résiduelle de 2.5h — uniquement si le module l'autorise.
             # Par défaut (et toujours pour les modules M10), tout est en blocs de 5h.
-            if autorise_2_5 and heures_a_traiter >= self.DUREE_SEANCE:
+            # Exception : le résidu de 2,5 h de la semaine de l'EFM (efm_simple).
+            if (autorise_2_5 or prev.efm_simple) and heures_a_traiter >= self.DUREE_SEANCE:
                 self._seance_counter += 1
                 s_simple = SeanceAPlacer(
                     id=self._seance_counter,
@@ -130,6 +132,7 @@ class DecoupeurSeances:
                 and len(seances) > nb_avant
             ):
                 seances[-1].nature = 'examen'
+                seances[-1].jour_efm = prev.jour_efm
 
         return seances
 

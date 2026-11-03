@@ -50,6 +50,7 @@ class ModelePlacement:
     P_SURCHARGE = 80        # Dépassement de 2 créneaux (5h) par jour pour un groupe
     P_TROU_GROUPE = 700     # Heure creuse (trou) dans l'emploi du temps d'un groupe
     P_TROU_PROF = 150       # Heure creuse pour un formateur
+    P_EFM_JOUR = 5000       # EFM placé hors de la date d'EFM prévue
 
     def __init__(
         self,
@@ -336,6 +337,13 @@ class ModelePlacement:
 
         # Soft Constraints Temporelles : Équilibrage journalier et Heures creuses
         penalites_temps = []
+
+        # L'EFM doit être placé le jour précis de sa date (pénalité très forte).
+        for s in self.seances:
+            if s.nature == 'examen' and s.jour_efm:
+                for c in self.creneaux:
+                    if c.jour != s.jour_efm:
+                        penalites_temps.append(self.P_EFM_JOUR * X[s.id, c.id])
         for gid in tous_les_groupes:
             s_ids = groupe_seances_map.get(gid, [])
             day_active_vars = []

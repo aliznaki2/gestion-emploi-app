@@ -63,6 +63,18 @@ def _bool(value, default=True):
     return str(value).strip().lower() in ('1', 'true', 'oui', 'yes', 'actif', 'active')
 
 
+def _parse_date(value):
+    """Convertit une date ISO (YYYY-MM-DD) en objet date, sinon None."""
+    if value in (None, ''):
+        return None
+    if isinstance(value, _date_cls):
+        return value
+    try:
+        return _date_cls.fromisoformat(str(value).strip()[:10])
+    except (TypeError, ValueError):
+        return None
+
+
 def _normalize_mode(value):
     raw = str(value or '').strip().lower()
     if 'alter' in raw:
@@ -155,6 +167,7 @@ def _module_data(m):
         'type_module_libelle': m.get_type_module_display(),
         'regional': m.regional,
         'efm_fin_module': m.efm_fin_module,
+        'date_efm': m.date_efm.isoformat() if m.date_efm else None,
         'seances_2_5_autorisees': m.seances_2_5_autorisees,
         'peut_avoir_seance_2_5': m.peut_avoir_seance_2_5,
         'est_technique_m10': m.est_technique_m10,
@@ -591,6 +604,7 @@ def modules_collection(request):
                 type_module=str(data.get('type_module') or 'technique').strip().lower(),
                 regional=_bool(data.get('regional'), False),
                 efm_fin_module=_bool(data.get('efm_fin_module'), True),
+                date_efm=_parse_date(data.get('date_efm')),
                 seances_2_5_autorisees=(
                     False if code.startswith('M10')
                     else _bool(data.get('seances_2_5_autorisees'), False)
@@ -631,6 +645,8 @@ def module_detail(request, pk):
             module.regional = _bool(data.get('regional'), False)
         if 'efm_fin_module' in data:
             module.efm_fin_module = _bool(data.get('efm_fin_module'), True)
+        if 'date_efm' in data:
+            module.date_efm = _parse_date(data.get('date_efm'))
         if 'seances_2_5_autorisees' in data:
             module.seances_2_5_autorisees = _bool(data.get('seances_2_5_autorisees'), False)
         # Les modules techniques M10 sont toujours en blocs de 5 h.
