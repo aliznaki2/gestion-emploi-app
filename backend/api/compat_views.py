@@ -605,10 +605,7 @@ def modules_collection(request):
                 regional=_bool(data.get('regional'), False),
                 efm_fin_module=_bool(data.get('efm_fin_module'), True),
                 date_efm=_parse_date(data.get('date_efm')),
-                seances_2_5_autorisees=(
-                    False if code.startswith('M10')
-                    else _bool(data.get('seances_2_5_autorisees'), False)
-                ),
+                seances_2_5_autorisees=_bool(data.get('seances_2_5_autorisees'), True),
             )
             types_ids = data.get('types_salles_compatibles') or data.get('types_salles_ids') or []
             if types_ids:
@@ -648,10 +645,7 @@ def module_detail(request, pk):
         if 'date_efm' in data:
             module.date_efm = _parse_date(data.get('date_efm'))
         if 'seances_2_5_autorisees' in data:
-            module.seances_2_5_autorisees = _bool(data.get('seances_2_5_autorisees'), False)
-        # Les modules techniques M10 sont toujours en blocs de 5 h.
-        if (module.code or '').upper().startswith('M10'):
-            module.seances_2_5_autorisees = False
+            module.seances_2_5_autorisees = _bool(data.get('seances_2_5_autorisees'), True)
         module.save()
         if 'types_salles_compatibles' in data or 'types_salles_ids' in data:
             types_ids = data.get('types_salles_compatibles') or data.get('types_salles_ids') or []

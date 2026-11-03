@@ -100,8 +100,7 @@ class DecoupeurSeances:
 
                 heures_a_traiter -= self.DUREE_BLOC
 
-            # Séance simple résiduelle de 2.5h — uniquement si le module l'autorise.
-            # Par défaut (et toujours pour les modules M10), tout est en blocs de 5h.
+            # Séance simple résiduelle de 2.5h — si le module l'autorise.
             # Exception : le résidu de 2,5 h de la semaine de l'EFM (efm_simple).
             if (autorise_2_5 or prev.efm_simple) and heures_a_traiter >= self.DUREE_SEANCE:
                 self._seance_counter += 1

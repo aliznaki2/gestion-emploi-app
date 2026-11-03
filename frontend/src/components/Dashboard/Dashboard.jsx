@@ -1267,8 +1267,7 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
   const [regional, setRegional] = useState(module?.regional ?? false)
   const [efmFinModule, setEfmFinModule] = useState(module?.efm_fin_module ?? true)
   const [dateEfm, setDateEfm] = useState(module?.date_efm || '')
-  const [seances25, setSeances25] = useState(module?.seances_2_5_autorisees ?? false)
-  const estM10 = code.trim().toUpperCase().startsWith('M10')
+  const [seances25, setSeances25] = useState(module?.seances_2_5_autorisees ?? true)
   const [typesCompatibles, setTypesCompatibles] = useState(
     module?.types_salles_ids || module?.types_salles_compatibles || []
   )
@@ -1301,7 +1300,7 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
         regional,
         efm_fin_module: efmFinModule,
         date_efm: dateEfm || null,
-        seances_2_5_autorisees: estM10 ? false : seances25,
+        seances_2_5_autorisees: seances25,
         types_salles_compatibles: typesCompatibles.map(Number),
       }
       const res = isEdit
@@ -1384,23 +1383,19 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
 
           <label style={{
             display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
-            color: estM10 ? '#94a3b8' : '#334155', marginBottom: 4,
-            cursor: estM10 ? 'not-allowed' : 'pointer'
+            color: '#334155', marginBottom: 4, cursor: 'pointer'
           }}>
             <input
               type="checkbox"
-              checked={estM10 ? false : seances25}
-              disabled={estM10}
+              checked={seances25}
               onChange={e => setSeances25(e.target.checked)}
-              style={{ width: 16, height: 16, cursor: estM10 ? 'not-allowed' : 'pointer' }}
+              style={{ width: 16, height: 16, cursor: 'pointer' }}
             />
             Autoriser les séances de 2,5 h
           </label>
           <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, lineHeight: 1.5 }}>
-            Par défaut, le moteur génère uniquement des blocs de 5 h.
-            {estM10
-              ? ' Les modules techniques M10 sont toujours planifiés en blocs de 5 h.'
-              : ' Cochez cette case uniquement si ce module doit avoir des séances isolées de 2,5 h (ex: PIE).'}
+            Activé par défaut : le moteur peut générer des séances isolées de 2,5 h.
+            Décochez cette case pour planifier ce module uniquement en blocs de 5 h.
           </div>
 
           <div className="modal-field">

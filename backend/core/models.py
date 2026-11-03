@@ -172,10 +172,10 @@ class Module(models.Model):
                     "avant cette date et place l'EFM ce jour-là."),
     )
     seances_2_5_autorisees = models.BooleanField(
-        default=False,
+        default=True,
         verbose_name=_("Autoriser les séances de 2,5 h"),
-        help_text=_("Par défaut, seules les séances de 5 h sont générées. "
-                    "Les modules techniques M10 ne peuvent jamais avoir de séances de 2,5 h."),
+        help_text=_("Les séances de 2,5 h sont autorisées par défaut. "
+                    "Décochez cette case pour planifier le module uniquement en blocs de 5 h."),
     )
     types_salles_compatibles = models.ManyToManyField(
         TypeSalle,
@@ -195,10 +195,7 @@ class Module(models.Model):
 
     @property
     def peut_avoir_seance_2_5(self) -> bool:
-        """Une séance isolée de 2,5 h n'est possible que si le module l'autorise
-        et qu'il ne s'agit pas d'un module technique M10 (blocs de 5 h uniquement)."""
-        if self.est_technique_m10:
-            return False
+        """Une séance isolée de 2,5 h est possible si le module l'autorise."""
         return bool(self.seances_2_5_autorisees)
 
     def __str__(self):
