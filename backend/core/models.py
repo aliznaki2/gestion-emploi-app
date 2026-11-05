@@ -313,6 +313,13 @@ class Professeur(models.Model):
         verbose_name=_("Salle préférée (Après-midi / PM)"),
     )
     actif = models.BooleanField(default=True, verbose_name=_("Actif"))
+    modules = models.ManyToManyField(
+        'Module',
+        blank=True,
+        related_name='professeurs',
+        verbose_name=_("Modules enseignés"),
+        help_text=_("Modules que ce formateur peut enseigner."),
+    )
 
     class Meta:
         verbose_name = _("Professeur / Formateur")

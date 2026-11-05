@@ -178,6 +178,21 @@ class CalculateurHeures:
                 module_profs[up.unite.module_id].append(up.professeur_id)
         for module_id in list(module_profs):
             module_profs[module_id] = sorted(set(module_profs[module_id]))
+
+        # Complément : modules déclarés directement sur la fiche formateur.
+        # Ils servent uniquement de secours quand aucune unité d'enseignement
+        # n'explicite déjà les formateurs du module.
+        for prof_id, module_id in (
+            Professeur.modules.through.objects
+            .filter(professeur__actif=True)
+            .values_list('professeur_id', 'module_id')
+        ):
+            if module_id not in module_profs:
+                module_profs[module_id] = []
+            if prof_id not in module_profs[module_id]:
+                module_profs[module_id].append(prof_id)
+        for module_id in module_profs:
+            module_profs[module_id] = sorted(set(module_profs[module_id]))
         attribution_count: Dict[int, int] = defaultdict(int)
 
         unites_vues = set()

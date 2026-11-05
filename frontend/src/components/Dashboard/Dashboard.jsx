@@ -872,7 +872,7 @@ function DeleteGroupeModal({ groupe, onClose, onConfirm, loading }) {
 }
 
 // ─── Modal Créer / Modifier Formateur ─────────────────────────────────────────
-function ProfesseurModal({ prof, salles = [], onClose, onSave }) {
+function ProfesseurModal({ prof, salles = [], modules = [], onClose, onSave }) {
   const isEdit = Boolean(prof?.id)
   const [nomComplet, setNomComplet] = useState(prof?.nom_complet || '')
   const [matricule, setMatricule] = useState(prof?.matricule || '')
@@ -882,8 +882,27 @@ function ProfesseurModal({ prof, salles = [], onClose, onSave }) {
   const [heuresMax, setHeuresMax] = useState(prof?.heures_max_semaine || '')
   const [sallePrefereeMatin, setSallePrefereeMatin] = useState(prof?.salle_preferee_matin_id || '')
   const [sallePrefereeApm, setSallePrefereeApm] = useState(prof?.salle_preferee_apm_id || '')
+  const [moduleIds, setModuleIds] = useState(
+    Array.isArray(prof?.module_ids)
+      ? prof.module_ids
+      : (prof?.modules || []).map(m => m.id)
+  )
+  const [moduleSearch, setModuleSearch] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  const modulesFiltres = modules.filter(m => {
+    const q = moduleSearch.trim().toLowerCase()
+    if (!q) return true
+    return (m.code || '').toLowerCase().includes(q) ||
+      (m.intitule || '').toLowerCase().includes(q)
+  })
+
+  const toggleModule = (id) => {
+    setModuleIds(prev => prev.includes(id)
+      ? prev.filter(x => x !== id)
+      : [...prev, id])
+  }
 
   const handleSubmit = async (e) => {
     e?.preventDefault()
@@ -904,6 +923,7 @@ function ProfesseurModal({ prof, salles = [], onClose, onSave }) {
         heures_max_semaine: heuresMax ? +heuresMax : null,
         salle_preferee_matin_id: sallePrefereeMatin ? +sallePrefereeMatin : null,
         salle_preferee_apm_id: sallePrefereeApm ? +sallePrefereeApm : null,
+        module_ids: moduleIds,
       }
 
       let res
@@ -928,7 +948,7 @@ function ProfesseurModal({ prof, salles = [], onClose, onSave }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <h3 style={{ margin: 0, fontSize: 18, color: '#0f2d5e' }}>
             {isEdit ? `Modifier le Formateur` : 'Ajouter un Formateur'}
@@ -1047,6 +1067,69 @@ function ProfesseurModal({ prof, salles = [], onClose, onSave }) {
                   <option key={s.id} value={s.id}>{s.nom} ({s.type_code})</option>
                 ))}
               </select>
+            </div>
+          </div>
+
+          <div className="modal-field">
+            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>Modules enseignés</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#1d4ed8' }}>
+                {moduleIds.length} sélectionné{moduleIds.length > 1 ? 's' : ''}
+              </span>
+            </label>
+            <input
+              type="text"
+              placeholder="Rechercher un module (code ou intitulé)…"
+              value={moduleSearch}
+              onChange={e => setModuleSearch(e.target.value)}
+              style={{ marginBottom: 8 }}
+            />
+            <div style={{
+              maxHeight: 180, overflowY: 'auto', border: '1px solid #e2e8f0',
+              borderRadius: 8, background: '#f8fafc', padding: '6px 8px'
+            }}>
+              {modulesFiltres.length === 0 ? (
+                <div style={{ padding: 12, fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
+                  Aucun module trouvé
+                </div>
+              ) : modulesFiltres.map(m => (
+                <label key={m.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
+                  color: '#334155', padding: '5px 4px', cursor: 'pointer',
+                  borderBottom: '1px solid #eef2f7'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={moduleIds.includes(m.id)}
+                    onChange={() => toggleModule(m.id)}
+                    style={{ width: 15, height: 15, cursor: 'pointer' }}
+                  />
+                  <span>
+                    <strong style={{ color: '#0f2d5e' }}>{m.code}</strong> — {m.intitule}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ padding: '4px 10px', fontSize: 11 }}
+                onClick={() => setModuleIds(modulesFiltres.map(m => m.id))}
+              >
+                Tout cocher
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ padding: '4px 10px', fontSize: 11 }}
+                onClick={() => setModuleIds([])}
+              >
+                Tout décocher
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+              Cochez les modules que ce formateur peut enseigner.
             </div>
           </div>
 
@@ -2209,10 +2292,15 @@ export default function Dashboard({ role = 'admin', onLogout }) {
   const filteredProfsList = useMemo(() => {
     return professeurs.filter(p => {
       const q = (profSearch || '').trim().toLowerCase()
+      const matchModules = !q || (p.modules || []).some(m =>
+        (m.code && m.code.toLowerCase().includes(q)) ||
+        (m.intitule && m.intitule.toLowerCase().includes(q))
+      )
       const matchSearch = !q ||
         (p.nom_complet && p.nom_complet.toLowerCase().includes(q)) ||
         (p.matricule && p.matricule.toLowerCase().includes(q)) ||
-        (p.email && p.email.toLowerCase().includes(q))
+        (p.email && p.email.toLowerCase().includes(q)) ||
+        matchModules
 
       const matchStatut = profStatutFilter === 'all' || p.statut === profStatutFilter
 
@@ -3381,6 +3469,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                         <th style={{ padding: '14px 18px' }}>Nom Affiché (Emploi)</th>
                         <th style={{ padding: '14px 18px' }}>Matricule</th>
                         <th style={{ padding: '14px 18px' }}>Email</th>
+                        <th style={{ padding: '14px 18px' }}>Modules</th>
                         <th style={{ padding: '14px 18px', textAlign: 'center' }}>Statut</th>
                         <th style={{ padding: '14px 18px', textAlign: 'center' }}>Présence</th>
                         <th style={{ padding: '14px 18px', textAlign: 'center' }}>Salle préf. Matin</th>
@@ -3391,7 +3480,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                     <tbody>
                       {filteredProfsList.length === 0 ? (
                         <tr>
-                          <td colSpan={9} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
+                          <td colSpan={10} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
                             
                             <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>Aucun formateur trouvé</div>
                             <div style={{ fontSize: 13, marginTop: 4 }}>Modifiez votre filtre ou terme de recherche</div>
@@ -3428,6 +3517,34 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                             </td>
                             <td style={{ padding: '14px 18px', color: '#475569' }}>
                               {p.email || '—'}
+                            </td>
+                            <td style={{ padding: '14px 18px' }}>
+                              {(p.modules || []).length === 0 ? (
+                                <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>
+                              ) : (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                  {(p.modules || []).slice(0, 3).map(m => (
+                                    <span
+                                      key={m.id}
+                                      title={m.intitule}
+                                      style={{
+                                        background: '#eff6ff', color: '#1d4ed8', padding: '2px 7px',
+                                        borderRadius: 4, border: '1px solid #bfdbfe', fontSize: 11, fontWeight: 600
+                                      }}
+                                    >
+                                      {m.code}
+                                    </span>
+                                  ))}
+                                  {(p.modules || []).length > 3 && (
+                                    <span style={{
+                                      background: '#f1f5f9', color: '#475569', padding: '2px 7px',
+                                      borderRadius: 4, border: '1px solid #e2e8f0', fontSize: 11, fontWeight: 600
+                                    }}>
+                                      +{(p.modules || []).length - 3}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                             </td>
                             <td style={{ padding: '14px 18px', textAlign: 'center' }}>
                               <span style={{
@@ -4364,6 +4481,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
         <ProfesseurModal
           prof={editingProf}
           salles={salles}
+          modules={modules}
           onClose={() => {
             setProfModalOpen(false)
             setEditingProf(null)

@@ -175,6 +175,7 @@ def _professeur_data(p):
     email = ''
     if getattr(p, 'utilisateur', None):
         email = p.utilisateur.email or ''
+    modules = list(p.modules.all())
     return {
         'id': p.id,
         'matricule': p.matricule,
@@ -190,6 +191,11 @@ def _professeur_data(p):
         'salle_preferee_apm_id': p.salle_preferee_apm_id,
         'salle_preferee_apm_nom': p.salle_preferee_apm.nom if p.salle_preferee_apm else None,
         'actif': p.actif,
+        'module_ids': [m.id for m in modules],
+        'modules': [
+            {'id': m.id, 'code': m.code, 'intitule': m.intitule}
+            for m in modules
+        ],
     }
 
 
@@ -465,7 +471,7 @@ def professeurs_collection(request):
     if request.method == 'GET':
         profs = Professeur.objects.select_related(
             'salle_preferee', 'salle_preferee_matin', 'salle_preferee_apm', 'utilisateur'
-        ).all().order_by('nom_complet')
+        ).prefetch_related('modules').all().order_by('nom_complet')
         return JsonResponse([_professeur_data(p) for p in profs], safe=False)
 
     if request.method != 'POST':
@@ -499,6 +505,7 @@ def professeurs_collection(request):
             salle_preferee_apm=_get_or_none(Salle, _value(data, 'salle_preferee_apm', 'salle_preferee_apm_id')),
             actif=_bool(data.get('actif'), True),
         )
+        prof.modules.set(Module.objects.filter(id__in=_module_ids_from(data)))
     except (IntegrityError, ValueError) as exc:
         return _error(f'Impossible de créer le formateur : {exc}')
     return JsonResponse(_professeur_data(prof), status=201)
@@ -541,6 +548,10 @@ def professeur_detail(request, pk):
         if 'actif' in data:
             prof.actif = _bool(data.get('actif'), True)
         prof.save()
+        if 'module_ids' in data or 'modules' in data:
+            prof.modules.set(
+                Module.objects.filter(id__in=_module_ids_from(data))
+            )
         return JsonResponse(_professeur_data(prof))
 
     if request.method == 'DELETE':

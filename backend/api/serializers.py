@@ -128,6 +128,7 @@ class ProfesseurSerializer(serializers.ModelSerializer):
     salle_preferee_nom = serializers.ReadOnlyField(source='salle_preferee.nom')
     salle_preferee_matin_nom = serializers.ReadOnlyField(source='salle_preferee_matin.nom')
     salle_preferee_apm_nom = serializers.ReadOnlyField(source='salle_preferee_apm.nom')
+    modules = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
 
     class Meta:
         model = Professeur
@@ -135,7 +136,7 @@ class ProfesseurSerializer(serializers.ModelSerializer):
             'id', 'matricule', 'nom_complet', 'utilisateur', 'statut',
             'heures_max_semaine', 'taux_presence', 'salle_preferee',
             'salle_preferee_nom', 'salle_preferee_matin', 'salle_preferee_matin_nom',
-            'salle_preferee_apm', 'salle_preferee_apm_nom', 'actif'
+            'salle_preferee_apm', 'salle_preferee_apm_nom', 'actif', 'modules'
         ]
 
 

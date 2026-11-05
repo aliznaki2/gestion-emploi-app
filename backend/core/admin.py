@@ -89,6 +89,7 @@ class ProfesseurAdmin(admin.ModelAdmin):
     list_display = ('matricule', 'nom_complet', 'statut', 'heures_max_semaine', 'salle_preferee', 'actif')
     list_filter = ('statut', 'actif')
     search_fields = ('matricule', 'nom_complet')
+    filter_horizontal = ('modules',)
 
 
 @admin.register(Creneau)
