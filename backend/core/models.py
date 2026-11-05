@@ -68,6 +68,13 @@ class Filiere(models.Model):
     intitule = models.CharField(max_length=150, verbose_name=_("Intitulé"))
     secteur = models.ForeignKey(Secteur, on_delete=models.CASCADE, related_name='filieres', verbose_name=_("Secteur"))
     niveau = models.CharField(max_length=50, default='TS', verbose_name=_("Niveau de formation"))
+    modules = models.ManyToManyField(
+        'Module',
+        blank=True,
+        related_name='filieres',
+        verbose_name=_("Modules enseignés"),
+        help_text=_("Modules dispensés dans cette filière."),
+    )
 
     class Meta:
         verbose_name = _("Filière")

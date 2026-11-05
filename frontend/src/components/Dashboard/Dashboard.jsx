@@ -1451,18 +1451,57 @@ function DeleteModuleModal({ module, onClose, onConfirm, loading }) {
 }
 
 // ─── Modal Créer / Modifier Filière ──────────────────────────────────────────
-function FiliereModal({ filiere, secteurs = [], onClose, onSave }) {
+function FiliereModal({ filiere, secteurs = [], modules = [], onClose, onSave }) {
   const isEdit = Boolean(filiere?.id)
   const [code, setCode] = useState(filiere?.code || '')
   const [intitule, setIntitule] = useState(filiere?.intitule || '')
-  const [secteurId, setSecteurId] = useState(filiere?.secteur_id || (secteurs?.[0]?.id || ''))
+  const [secteurId, setSecteurId] = useState(
+    filiere?.secteur_id != null
+      ? String(filiere.secteur_id)
+      : (secteurs?.[0]?.id ? String(secteurs[0].id) : '')
+  )
+  const [nouveauSecteur, setNouveauSecteur] = useState('')
   const [niveau, setNiveau] = useState(filiere?.niveau || 'TS')
+  const [moduleIds, setModuleIds] = useState(
+    Array.isArray(filiere?.module_ids)
+      ? filiere.module_ids
+      : (filiere?.modules || []).map(m => m.id)
+  )
+  const [moduleSearch, setModuleSearch] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (!secteurId && secteurs.length > 0) setSecteurId(secteurs[0].id)
-  }, [secteurs, secteurId])
+    if (!secteurId && !nouveauSecteur.trim() && secteurs.length > 0) {
+      setSecteurId(String(secteurs[0].id))
+    }
+  }, [secteurs, secteurId, nouveauSecteur])
+
+  const secteurManquant = filiere?.secteur_id != null &&
+    !secteurs.some(s => String(s.id) === String(filiere.secteur_id))
+
+  const modulesFiltres = modules.filter(m => {
+    const q = moduleSearch.trim().toLowerCase()
+    if (!q) return true
+    return (m.code || '').toLowerCase().includes(q) ||
+      (m.intitule || '').toLowerCase().includes(q)
+  })
+
+  const toggleModule = (id) => {
+    setModuleIds(prev => prev.includes(id)
+      ? prev.filter(x => x !== id)
+      : [...prev, id])
+  }
+
+  const handleSecteurChange = (value) => {
+    setSecteurId(value)
+    setNouveauSecteur('')
+  }
+
+  const handleNouveauSecteurChange = (value) => {
+    setNouveauSecteur(value)
+    if (value.trim()) setSecteurId('')
+  }
 
   const handleSubmit = async (e) => {
     e?.preventDefault()
@@ -1470,8 +1509,8 @@ function FiliereModal({ filiere, secteurs = [], onClose, onSave }) {
       setError('Le code et l\'intitulé de la filière sont obligatoires')
       return
     }
-    if (!secteurId) {
-      setError('Veuillez sélectionner un secteur')
+    if (!secteurId && !nouveauSecteur.trim()) {
+      setError('Veuillez sélectionner un secteur ou saisir un nouveau secteur')
       return
     }
     setLoading(true)
@@ -1480,8 +1519,13 @@ function FiliereModal({ filiere, secteurs = [], onClose, onSave }) {
       const payload = {
         code: code.trim().toUpperCase(),
         intitule: intitule.trim(),
-        secteur_id: +secteurId,
         niveau: niveau.trim(),
+        module_ids: moduleIds,
+      }
+      if (nouveauSecteur.trim()) {
+        payload.secteur_intitule = nouveauSecteur.trim()
+      } else {
+        payload.secteur_id = +secteurId
       }
       const res = isEdit
         ? await apiFetch(`${API}/filieres/${filiere.id}`, { method: 'PUT', body: JSON.stringify(payload) })
@@ -1496,7 +1540,7 @@ function FiliereModal({ filiere, secteurs = [], onClose, onSave }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 500 }}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <h3 style={{ margin: 0, fontSize: 18, color: '#0f2d5e' }}>
             {isEdit ? `Modifier la filière ${filiere.code}` : 'Ajouter une Filière'}
@@ -1531,11 +1575,92 @@ function FiliereModal({ filiere, secteurs = [], onClose, onSave }) {
 
           <div className="modal-field">
             <label>Secteur *</label>
-            <select value={secteurId} onChange={e => setSecteurId(e.target.value)} required>
+            <select value={secteurId} onChange={e => handleSecteurChange(e.target.value)}>
+              <option value="">— Sélectionner un secteur —</option>
               {secteurs.map(s => (
                 <option key={s.id} value={s.id}>{s.intitule} ({s.code})</option>
               ))}
+              {secteurManquant && (
+                <option value={String(filiere.secteur_id)}>
+                  {filiere.secteur_nom} ({filiere.secteur_code})
+                </option>
+              )}
             </select>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0 6px' }}>
+              <span style={{ fontSize: 12, color: '#64748b' }}>ou créer un nouveau secteur :</span>
+            </div>
+            <input
+              type="text"
+              placeholder="Ex: NTIC, Génie Mécanique…"
+              value={nouveauSecteur}
+              onChange={e => handleNouveauSecteurChange(e.target.value)}
+            />
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, lineHeight: 1.4 }}>
+              Si ce champ est rempli, un nouveau secteur sera créé avec un code généré automatiquement.
+            </div>
+          </div>
+
+          <div className="modal-field">
+            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>Modules enseignés</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#1d4ed8' }}>
+                {moduleIds.length} sélectionné{moduleIds.length > 1 ? 's' : ''}
+              </span>
+            </label>
+            <input
+              type="text"
+              placeholder="Rechercher un module (code ou intitulé)…"
+              value={moduleSearch}
+              onChange={e => setModuleSearch(e.target.value)}
+              style={{ marginBottom: 8 }}
+            />
+            <div style={{
+              maxHeight: 200, overflowY: 'auto', border: '1px solid #e2e8f0',
+              borderRadius: 8, background: '#f8fafc', padding: '6px 8px'
+            }}>
+              {modulesFiltres.length === 0 ? (
+                <div style={{ padding: 12, fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
+                  Aucun module trouvé
+                </div>
+              ) : modulesFiltres.map(m => (
+                <label key={m.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
+                  color: '#334155', padding: '5px 4px', cursor: 'pointer',
+                  borderBottom: '1px solid #eef2f7'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={moduleIds.includes(m.id)}
+                    onChange={() => toggleModule(m.id)}
+                    style={{ width: 15, height: 15, cursor: 'pointer' }}
+                  />
+                  <span>
+                    <strong style={{ color: '#0f2d5e' }}>{m.code}</strong> — {m.intitule}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ padding: '4px 10px', fontSize: 11 }}
+                onClick={() => setModuleIds(modulesFiltres.map(m => m.id))}
+              >
+                Tout cocher
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ padding: '4px 10px', fontSize: 11 }}
+                onClick={() => setModuleIds([])}
+              >
+                Tout décocher
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+              Cochez les modules dispensés dans cette filière.
+            </div>
           </div>
 
           <div className="modal-actions" style={{ marginTop: 24 }}>
@@ -2191,6 +2316,8 @@ export default function Dashboard({ role = 'admin', onLogout }) {
     }
     setFiliereModalOpen(false)
     setEditingFiliere(null)
+    // Un nouveau secteur a pu être créé depuis la modale : rafraîchir la liste.
+    apiFetch(`${API}/secteurs`).then(setSecteurs).catch(() => {})
   }
 
   const handleDeleteFiliereConfirm = async () => {
@@ -2211,10 +2338,15 @@ export default function Dashboard({ role = 'admin', onLogout }) {
   const filteredFilieresList = useMemo(() => {
     return filieres.filter(f => {
       const q = (filiereSearch || '').trim().toLowerCase()
+      const matchModules = !q || (f.modules || []).some(m =>
+        (m.code && m.code.toLowerCase().includes(q)) ||
+        (m.intitule && m.intitule.toLowerCase().includes(q))
+      )
       const matchSearch = !q ||
         (f.code && f.code.toLowerCase().includes(q)) ||
         (f.intitule && f.intitule.toLowerCase().includes(q)) ||
-        (f.secteur_nom && f.secteur_nom.toLowerCase().includes(q))
+        (f.secteur_nom && f.secteur_nom.toLowerCase().includes(q)) ||
+        matchModules
 
       const matchSecteur = filiereSecteurFilter === 'all' ||
         String(f.secteur_id) === String(filiereSecteurFilter)
@@ -3923,6 +4055,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                         <th style={{ padding: '14px 18px' }}>Code</th>
                         <th style={{ padding: '14px 18px' }}>Intitulé</th>
                         <th style={{ padding: '14px 18px' }}>Secteur</th>
+                        <th style={{ padding: '14px 18px' }}>Modules</th>
                         <th style={{ padding: '14px 18px', textAlign: 'center' }}>Niveau</th>
                         <th style={{ padding: '14px 18px', textAlign: 'center' }}>Groupes</th>
                         <th style={{ padding: '14px 18px', textAlign: 'right' }}>Actions</th>
@@ -3931,7 +4064,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                     <tbody>
                       {filteredFilieresList.length === 0 ? (
                         <tr>
-                          <td colSpan={6} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
+                          <td colSpan={7} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
                             <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>Aucune filière trouvée</div>
                             <div style={{ fontSize: 13, marginTop: 4 }}>Modifiez votre filtre ou terme de recherche</div>
                           </td>
@@ -3955,6 +4088,34 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                           <td style={{ padding: '14px 18px', color: '#475569' }}>
                             <div style={{ fontWeight: 600 }}>{f.secteur_nom}</div>
                             <div style={{ fontSize: 11, color: '#64748b' }}>{f.secteur_code}</div>
+                          </td>
+                          <td style={{ padding: '14px 18px' }}>
+                            {(f.modules || []).length === 0 ? (
+                              <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>
+                            ) : (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                {(f.modules || []).slice(0, 3).map(m => (
+                                  <span
+                                    key={m.id}
+                                    title={m.intitule}
+                                    style={{
+                                      background: '#eff6ff', color: '#1d4ed8', padding: '2px 7px',
+                                      borderRadius: 4, border: '1px solid #bfdbfe', fontSize: 11, fontWeight: 600
+                                    }}
+                                  >
+                                    {m.code}
+                                  </span>
+                                ))}
+                                {(f.modules || []).length > 3 && (
+                                  <span style={{
+                                    background: '#f1f5f9', color: '#475569', padding: '2px 7px',
+                                    borderRadius: 4, border: '1px solid #e2e8f0', fontSize: 11, fontWeight: 600
+                                  }}>
+                                    +{(f.modules || []).length - 3}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </td>
                           <td style={{ padding: '14px 18px', textAlign: 'center', color: '#475569' }}>{f.niveau || '—'}</td>
                           <td style={{ padding: '14px 18px', textAlign: 'center', fontWeight: 700, color: '#0f172a' }}>
@@ -4266,6 +4427,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
         <FiliereModal
           filiere={editingFiliere}
           secteurs={secteurs}
+          modules={modules}
           onClose={() => {
             setFiliereModalOpen(false)
             setEditingFiliere(null)

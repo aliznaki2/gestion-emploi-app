@@ -7,6 +7,8 @@ aussi le CRUD complet des données de base : groupes, formateurs, salles,
 modules, filières et secteurs.
 """
 import json
+import re
+import unicodedata
 from datetime import date as _date_cls
 
 from django.db import IntegrityError, transaction
@@ -95,6 +97,54 @@ def _normalize_taux(value):
     return max(0.0, min(1.0, taux))
 
 
+def _module_ids_from(data):
+    """Extrait une liste d'identifiants de modules depuis le corps JSON.
+
+    Accepte ``module_ids`` (liste d'ids) ou ``modules`` (liste d'ids ou
+    d'objets ``{id, code, intitule}`` renvoyés par l'API.
+    """
+    raw = data.get('module_ids')
+    if raw is None:
+        raw = data.get('modules')
+    if not isinstance(raw, list):
+        return []
+    ids = []
+    for item in raw:
+        if isinstance(item, dict):
+            item = item.get('id')
+        module_id = _int_or_none(item)
+        if module_id is not None:
+            ids.append(module_id)
+    return ids
+
+
+def _code_depuis_intitule(intitule, max_len=20):
+    """Génère un code lisible à partir d'un intitulé (sans accents)."""
+    normalized = unicodedata.normalize('NFKD', intitule or '')
+    ascii_label = normalized.encode('ascii', 'ignore').decode('ascii')
+    code = re.sub(r'[^A-Za-z0-9]+', '', ascii_label).upper()[:max_len]
+    return code or 'SEC'
+
+
+def _secteur_depuis_intitule(intitule):
+    """Retourne le secteur correspondant à l'intitulé, ou le crée."""
+    intitule = str(intitule or '').strip()
+    if not intitule:
+        return None
+    existant = Secteur.objects.filter(intitule__iexact=intitule).first()
+    if existant:
+        return existant
+
+    base = _code_depuis_intitule(intitule)
+    code = base
+    suffixe = 2
+    while Secteur.objects.filter(code=code).exists():
+        suffixe_str = str(suffixe)
+        code = f"{base[:max(1, 20 - len(suffixe_str))]}{suffixe_str}"
+        suffixe += 1
+    return Secteur.objects.create(code=code, intitule=intitule)
+
+
 def _get_or_none(model, pk):
     if pk in (None, ''):
         return None
@@ -179,6 +229,7 @@ def _module_data(m):
 
 
 def _filiere_data(f):
+    modules = list(f.modules.all())
     return {
         'id': f.id,
         'code': f.code,
@@ -187,6 +238,11 @@ def _filiere_data(f):
         'secteur_code': f.secteur.code,
         'secteur_nom': f.secteur.intitule,
         'niveau': f.niveau,
+        'module_ids': [m.id for m in modules],
+        'modules': [
+            {'id': m.id, 'code': m.code, 'intitule': m.intitule}
+            for m in modules
+        ],
     }
 
 
@@ -671,7 +727,12 @@ def module_detail(request, pk):
 @csrf_exempt
 def filieres_collection(request):
     if request.method == 'GET':
-        filieres = Filiere.objects.select_related('secteur').all().order_by('code')
+        filieres = (
+            Filiere.objects.select_related('secteur')
+            .prefetch_related('modules')
+            .all()
+            .order_by('code')
+        )
         return JsonResponse([_filiere_data(f) for f in filieres], safe=False)
 
     if request.method != 'POST':
@@ -680,23 +741,34 @@ def filieres_collection(request):
     data = _body(request)
     code = str(_value(data, 'code', default='')).strip().upper()
     intitule = str(_value(data, 'intitule', default='')).strip()
-    secteur = _get_or_none(Secteur, _value(data, 'secteur_id', 'secteur'))
     if not code:
         return _error('Le code de la filière est obligatoire.')
     if not intitule:
         return _error("L'intitulé de la filière est obligatoire.")
-    if not secteur:
-        return _error('Le secteur est obligatoire.')
     if Filiere.objects.filter(code=code).exists():
         return _error(f'La filière {code} existe déjà.')
 
-    try:
-        filiere = Filiere.objects.create(
-            code=code,
-            intitule=intitule,
-            secteur=secteur,
-            niveau=str(data.get('niveau') or 'TS').strip(),
+    # Secteur : sélection d'un secteur existant, ou création à la volée
+    # depuis le champ texte « nouveau secteur ».
+    secteur = _get_or_none(Secteur, _value(data, 'secteur_id', 'secteur'))
+    if not secteur:
+        secteur = _secteur_depuis_intitule(
+            _value(data, 'secteur_intitule', 'nouveau_secteur', default='')
         )
+    if not secteur:
+        return _error('Le secteur est obligatoire.')
+
+    try:
+        with transaction.atomic():
+            filiere = Filiere.objects.create(
+                code=code,
+                intitule=intitule,
+                secteur=secteur,
+                niveau=str(data.get('niveau') or 'TS').strip(),
+            )
+            module_ids = _module_ids_from(data)
+            if module_ids:
+                filiere.modules.set(Module.objects.filter(id__in=module_ids))
     except IntegrityError as exc:
         return _error(f'Impossible de créer la filière : {exc}')
     return JsonResponse(_filiere_data(filiere), status=201)
@@ -726,9 +798,19 @@ def filiere_detail(request, pk):
             if not secteur:
                 return _error('Secteur introuvable.')
             filiere.secteur = secteur
+        else:
+            nouveau_secteur = _value(
+                data, 'secteur_intitule', 'nouveau_secteur', default=''
+            )
+            if nouveau_secteur:
+                filiere.secteur = _secteur_depuis_intitule(nouveau_secteur)
         if 'niveau' in data:
             filiere.niveau = str(data.get('niveau') or 'TS').strip()
         filiere.save()
+        if 'module_ids' in data or 'modules' in data:
+            filiere.modules.set(
+                Module.objects.filter(id__in=_module_ids_from(data))
+            )
         return JsonResponse(_filiere_data(filiere))
 
     if request.method == 'DELETE':

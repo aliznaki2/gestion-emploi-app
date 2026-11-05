@@ -37,10 +37,11 @@ class SecteurSerializer(serializers.ModelSerializer):
 
 class FiliereSerializer(serializers.ModelSerializer):
     secteur_nom = serializers.ReadOnlyField(source='secteur.intitule')
+    modules = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
 
     class Meta:
         model = Filiere
-        fields = ['id', 'code', 'intitule', 'secteur', 'secteur_nom', 'niveau']
+        fields = ['id', 'code', 'intitule', 'secteur', 'secteur_nom', 'niveau', 'modules']
 
 
 class GroupeSerializer(serializers.ModelSerializer):

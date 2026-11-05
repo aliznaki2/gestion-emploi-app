@@ -35,6 +35,7 @@ class FiliereAdmin(admin.ModelAdmin):
     list_display = ('code', 'intitule', 'secteur', 'niveau')
     list_filter = ('secteur', 'niveau')
     search_fields = ('code', 'intitule')
+    filter_horizontal = ('modules',)
 
 
 @admin.register(Groupe)
