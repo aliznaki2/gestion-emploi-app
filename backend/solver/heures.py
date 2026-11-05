@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 from core.models import (
     Semaine, UniteEnseignement, Groupe, Passage, VolumeHoraire,
-    Professeur, Seance, UniteProfesseur
+    Professeur, Seance, UniteProfesseur, AffectationEnseignement, UniteGroupe,
 )
 
 
@@ -80,6 +80,179 @@ class CalculateurHeures:
         return max(2.5, round(val / 2.5) * 2.5)
 
     def calculer(self, groupes_cibles: Optional[List[Groupe]] = None,
+                 groupes_off_semaine: Optional[set] = None,
+                 profs_jours_off: Optional[Dict[int, set]] = None) -> List[UnitePrevision]:
+        """Calcule les prévisions à partir des paramètres de l'interface admin.
+
+        Pour chaque groupe, les modules planifiés sont ceux cochés dans sa
+        filière, avec les heures/semaine définies sur le module. Les formateurs
+        sont ceux affectés au couple (module, groupe) dans la fiche formateur ;
+        si aucun n'est affecté, les séances sont générées sans formateur.
+        """
+        groupes_off_semaine = groupes_off_semaine or set()
+        profs_jours_off = profs_jours_off or {}
+
+        if groupes_cibles is None:
+            groupes = list(
+                Groupe.objects.filter(actif=True)
+                .select_related('filiere')
+                .prefetch_related('filiere__modules')
+            )
+        else:
+            ids = [g.id for g in groupes_cibles]
+            groupes = list(
+                Groupe.objects.filter(id__in=ids, actif=True)
+                .select_related('filiere')
+                .prefetch_related('filiere__modules')
+            )
+        groupes = [g for g in groupes if g.id not in groupes_off_semaine]
+        if not groupes:
+            return []
+
+        num_semaine = self.semaine.numero
+
+        # Calendrier des semaines pour situer la date de l'EFM d'un module.
+        semaines_dates = list(
+            Semaine.objects.filter(annee_scolaire=self.semaine.annee_scolaire)
+            .exclude(date_debut__isnull=True)
+            .exclude(date_fin__isnull=True)
+            .values_list('numero', 'date_debut', 'date_fin')
+        )
+
+        def semaine_de(date_efm) -> Optional[int]:
+            for numero, debut, fin in semaines_dates:
+                if debut <= date_efm <= fin:
+                    return numero
+            return None
+
+        # Heures déjà planifiées et conservées pour la semaine.
+        heures_planifiees_unite: Dict[int, float] = defaultdict(float)
+        for seance in Seance.objects.filter(semaine=self.semaine).select_related('creneau'):
+            if not (seance.verrouillee or seance.statut == Seance.STATUT_VALIDE):
+                continue
+            heures_planifiees_unite[seance.unite_id] += float(
+                seance.creneau.duree_h or self.DUREE_CRENEAU
+            )
+
+        # Unités ayant déjà reçu un EFM dans une autre semaine (évite les doublons).
+        unites_avec_efm = set(
+            Seance.objects.filter(nature=Seance.NATURE_EXAMEN)
+            .exclude(semaine=self.semaine)
+            .values_list('unite_id', flat=True)
+        )
+
+        # Regrouper les besoins par (module, unité d'enseignement).
+        lignes: Dict[tuple, Dict[str, object]] = {}
+        for groupe in groupes:
+            if not groupe.filiere_id:
+                continue
+            for module in groupe.filiere.modules.all():
+                ue = self._unite_pour_module(module, groupe)
+                if ue is None:
+                    continue
+                cle = (module.id, ue.id)
+                if cle not in lignes:
+                    lignes[cle] = {
+                        'module': module,
+                        'unite': ue,
+                        'groupe_ids': set(),
+                    }
+                lignes[cle]['groupe_ids'].add(groupe.id)
+
+        previsions: List[UnitePrevision] = []
+        for (module_id, unite_id), info in lignes.items():
+            module = info['module']
+            ue = info['unite']
+            groupe_ids = sorted(info['groupe_ids'])
+
+            heures = float(getattr(module, 'heures_hebdomadaires', 0.0) or 0.0)
+            if heures <= 0:
+                continue
+            if getattr(module, 'peut_avoir_seance_2_5', False):
+                heures = self.round_to_creneau(heures)
+            else:
+                heures = self.plafond_multiple_de_5(heures)
+            heures -= heures_planifiees_unite.get(unite_id, 0.0)
+            if heures <= 0:
+                continue
+
+            prof_ids = sorted({
+                a.professeur_id
+                for a in AffectationEnseignement.objects.filter(
+                    module_id=module_id,
+                    groupe_id__in=groupe_ids,
+                    professeur__actif=True,
+                )
+            })
+
+            # Tous les formateurs affectés sont indisponibles toute la semaine.
+            if prof_ids and profs_jours_off and all(
+                len(profs_jours_off.get(pid, ())) >= 6 for pid in prof_ids
+            ):
+                continue
+
+            date_efm = getattr(module, 'date_efm', None)
+            semaine_efm = semaine_de(date_efm) if date_efm else None
+            est_semaine_efm = semaine_efm is not None and semaine_efm == num_semaine
+            efm_actif = (
+                bool(getattr(module, 'efm_fin_module', False))
+                and semaine_efm is not None
+            )
+
+            derniere_semaine = False
+            if unite_id not in unites_avec_efm and efm_actif:
+                derniere_semaine = num_semaine >= semaine_efm
+
+            jour_efm = None
+            if est_semaine_efm and date_efm and self.semaine.date_debut:
+                jour = (date_efm - self.semaine.date_debut).days + 1
+                if 1 <= jour <= 6:
+                    jour_efm = jour
+
+            previsions.append(
+                UnitePrevision(
+                    unite_id=unite_id,
+                    unite=ue,
+                    groupe_ids=groupe_ids,
+                    professeur_ids=prof_ids,
+                    heures_prevues=heures,
+                    type_module=module.type_module,
+                    code_fusion=ue.code_fusion,
+                    est_passage=False,
+                    derniere_semaine=derniere_semaine,
+                    jour_efm=jour_efm,
+                    efm_simple=False,
+                )
+            )
+
+        return previsions
+
+    def _unite_pour_module(self, module, groupe) -> Optional[UniteEnseignement]:
+        """Retourne l'unité (module, groupe) existante, ou la crée.
+
+        L'unité sert uniquement de support aux séances générées ; les volumes
+        horaires ne sont plus utilisés, les heures venant du module.
+        """
+        base = UniteEnseignement.objects.filter(
+            module=module,
+            annee_scolaire=self.semaine.annee_scolaire,
+            unite_groupes__groupe=groupe,
+        ).distinct()
+        ue = base.filter(semestre=self.semaine.semestre).order_by('id').first()
+        if ue is None:
+            ue = base.order_by('id').first()
+        if ue is not None:
+            return ue
+
+        ue = UniteEnseignement.objects.create(
+            module=module,
+            annee_scolaire=self.semaine.annee_scolaire,
+            semestre=self.semaine.semestre,
+        )
+        UniteGroupe.objects.get_or_create(unite=ue, groupe=groupe)
+        return ue
+
+    def _calculer_par_unites(self, groupes_cibles: Optional[List[Groupe]] = None,
                  groupes_off_semaine: Optional[set] = None,
                  profs_jours_off: Optional[Dict[int, set]] = None) -> List[UnitePrevision]:
         """

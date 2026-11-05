@@ -184,6 +184,11 @@ class Module(models.Model):
         help_text=_("Les séances de 2,5 h sont autorisées par défaut. "
                     "Décochez cette case pour planifier le module uniquement en blocs de 5 h."),
     )
+    heures_hebdomadaires = models.FloatField(
+        default=5.0,
+        verbose_name=_("Heures par semaine (par groupe)"),
+        help_text=_("Volume horaire hebdomadaire planifié pour ce module, pour chaque groupe."),
+    )
     types_salles_compatibles = models.ManyToManyField(
         TypeSalle,
         blank=True,
@@ -488,6 +493,46 @@ class UniteProfesseur(models.Model):
 
     def __str__(self):
         return f"{self.professeur.nom_complet} -> {self.unite} ({self.mode})"
+
+
+class AffectationEnseignement(models.Model):
+    """Affectation d'un formateur à un module pour un groupe donné.
+
+    Chaque formateur peut enseigner plusieurs modules, et pour chaque module
+    il peut être affecté à un ou plusieurs groupes. C'est cette affectation
+    qui pilote le choix du formateur lors de la génération.
+    """
+    professeur = models.ForeignKey(
+        Professeur,
+        on_delete=models.CASCADE,
+        related_name='affectations_enseignement',
+        verbose_name=_("Formateur"),
+    )
+    module = models.ForeignKey(
+        Module,
+        on_delete=models.CASCADE,
+        related_name='affectations_enseignement',
+        verbose_name=_("Module"),
+    )
+    groupe = models.ForeignKey(
+        Groupe,
+        on_delete=models.CASCADE,
+        related_name='affectations_enseignement',
+        verbose_name=_("Groupe"),
+    )
+
+    class Meta:
+        verbose_name = _("Affectation Module / Groupe")
+        verbose_name_plural = _("Affectations Module / Groupe")
+        constraints = [
+            models.UniqueConstraint(
+                fields=['professeur', 'module', 'groupe'],
+                name='unique_professeur_module_groupe',
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.professeur.nom_complet} -> {self.module.code} / {self.groupe.code}"
 
 
 class Indisponibilite(models.Model):

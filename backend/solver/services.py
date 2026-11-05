@@ -90,7 +90,11 @@ class GenerateurEmploiDuTemps:
             )
 
             if not previsions:
-                msg = "Aucun module ou volume horaire restant à planifier pour cette semaine."
+                msg = (
+                    "Aucun module à planifier pour cette semaine. Vérifiez que les "
+                    "filières ont des modules cochés et que ces modules ont des "
+                    "heures par semaine renseignées."
+                )
                 self._log(Journal.NIVEAU_WARNING, msg)
                 self.tache.statut = TacheGeneration.STATUT_TERMINEE
                 self.tache.message = msg

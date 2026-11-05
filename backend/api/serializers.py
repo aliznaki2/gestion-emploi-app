@@ -129,6 +129,7 @@ class ProfesseurSerializer(serializers.ModelSerializer):
     salle_preferee_matin_nom = serializers.ReadOnlyField(source='salle_preferee_matin.nom')
     salle_preferee_apm_nom = serializers.ReadOnlyField(source='salle_preferee_apm.nom')
     modules = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    affectations = serializers.SerializerMethodField()
 
     class Meta:
         model = Professeur
@@ -136,7 +137,14 @@ class ProfesseurSerializer(serializers.ModelSerializer):
             'id', 'matricule', 'nom_complet', 'utilisateur', 'statut',
             'heures_max_semaine', 'taux_presence', 'salle_preferee',
             'salle_preferee_nom', 'salle_preferee_matin', 'salle_preferee_matin_nom',
-            'salle_preferee_apm', 'salle_preferee_apm_nom', 'actif', 'modules'
+            'salle_preferee_apm', 'salle_preferee_apm_nom', 'actif', 'modules',
+            'affectations',
+        ]
+
+    def get_affectations(self, obj):
+        return [
+            {'module_id': a.module_id, 'groupe_id': a.groupe_id}
+            for a in obj.affectations_enseignement.all()
         ]
 
 

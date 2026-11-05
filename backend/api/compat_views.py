@@ -19,7 +19,8 @@ from django.views.decorators.csrf import csrf_exempt
 from core.models import (
     Semaine, Groupe, Professeur, Salle, Creneau,
     UniteEnseignement, Filiere, Secteur, TypeSalle, Module, Seance,
-    SeanceGroupe, SeanceProfesseur, AnneeScolaire, Semestre, Indisponibilite
+    SeanceGroupe, SeanceProfesseur, AnneeScolaire, Semestre, Indisponibilite,
+    AffectationEnseignement,
 )
 from solver.services import GenerateurEmploiDuTemps
 
@@ -63,6 +64,15 @@ def _bool(value, default=True):
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in ('1', 'true', 'oui', 'yes', 'actif', 'active')
+
+
+def _float_or_default(value, default=0.0):
+    try:
+        if value in (None, ''):
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _parse_date(value):
@@ -171,11 +181,50 @@ def _groupe_data(g):
     }
 
 
+def _affectations_from(data):
+    """Extrait les couples (module, groupe) depuis le corps JSON.
+
+    Accepte une liste ``affectations`` d'objets ``{module_id, groupe_id}``.
+    """
+    raw = data.get('affectations')
+    if not isinstance(raw, list):
+        return []
+    couples = []
+    for item in raw:
+        if isinstance(item, dict):
+            module_id = _int_or_none(_value(item, 'module_id', 'module'))
+            groupe_id = _int_or_none(_value(item, 'groupe_id', 'groupe'))
+            if module_id is not None and groupe_id is not None:
+                couples.append((module_id, groupe_id))
+    return couples
+
+
+def _sync_affectations(prof, data):
+    """Remplace les affectations module/groupe d'un formateur."""
+    couples = _affectations_from(data)
+    valid_modules = set(
+        Module.objects.filter(id__in={m for m, _ in couples}).values_list('id', flat=True)
+    )
+    valid_groupes = set(
+        Groupe.objects.filter(id__in={g for _, g in couples}).values_list('id', flat=True)
+    )
+    prof.affectations_enseignement.all().delete()
+    AffectationEnseignement.objects.bulk_create([
+        AffectationEnseignement(professeur=prof, module_id=module_id, groupe_id=groupe_id)
+        for module_id, groupe_id in sorted(set(couples))
+        if module_id in valid_modules and groupe_id in valid_groupes
+    ], ignore_conflicts=True)
+
+
 def _professeur_data(p):
     email = ''
     if getattr(p, 'utilisateur', None):
         email = p.utilisateur.email or ''
     modules = list(p.modules.all())
+    affectations = [
+        {'module_id': a.module_id, 'groupe_id': a.groupe_id}
+        for a in p.affectations_enseignement.all()
+    ]
     return {
         'id': p.id,
         'matricule': p.matricule,
@@ -196,6 +245,7 @@ def _professeur_data(p):
             {'id': m.id, 'code': m.code, 'intitule': m.intitule}
             for m in modules
         ],
+        'affectations': affectations,
     }
 
 
@@ -226,6 +276,7 @@ def _module_data(m):
         'date_efm': m.date_efm.isoformat() if m.date_efm else None,
         'seances_2_5_autorisees': m.seances_2_5_autorisees,
         'peut_avoir_seance_2_5': m.peut_avoir_seance_2_5,
+        'heures_hebdomadaires': float(m.heures_hebdomadaires or 0),
         'est_technique_m10': m.est_technique_m10,
         'types_salles_compatibles': [t.id for t in types],
         'types_salles_ids': [t.id for t in types],
@@ -471,7 +522,7 @@ def professeurs_collection(request):
     if request.method == 'GET':
         profs = Professeur.objects.select_related(
             'salle_preferee', 'salle_preferee_matin', 'salle_preferee_apm', 'utilisateur'
-        ).prefetch_related('modules').all().order_by('nom_complet')
+        ).prefetch_related('modules', 'affectations_enseignement').all().order_by('nom_complet')
         return JsonResponse([_professeur_data(p) for p in profs], safe=False)
 
     if request.method != 'POST':
@@ -505,7 +556,10 @@ def professeurs_collection(request):
             salle_preferee_apm=_get_or_none(Salle, _value(data, 'salle_preferee_apm', 'salle_preferee_apm_id')),
             actif=_bool(data.get('actif'), True),
         )
-        prof.modules.set(Module.objects.filter(id__in=_module_ids_from(data)))
+        prof.modules.set(Module.objects.filter(
+            id__in=set(_module_ids_from(data)) | {m for m, _ in _affectations_from(data)}
+        ))
+        _sync_affectations(prof, data)
     except (IntegrityError, ValueError) as exc:
         return _error(f'Impossible de créer le formateur : {exc}')
     return JsonResponse(_professeur_data(prof), status=201)
@@ -548,10 +602,12 @@ def professeur_detail(request, pk):
         if 'actif' in data:
             prof.actif = _bool(data.get('actif'), True)
         prof.save()
-        if 'module_ids' in data or 'modules' in data:
-            prof.modules.set(
-                Module.objects.filter(id__in=_module_ids_from(data))
-            )
+        if 'module_ids' in data or 'modules' in data or 'affectations' in data:
+            prof.modules.set(Module.objects.filter(
+                id__in=set(_module_ids_from(data)) | {m for m, _ in _affectations_from(data)}
+            ))
+        if 'affectations' in data:
+            _sync_affectations(prof, data)
         return JsonResponse(_professeur_data(prof))
 
     if request.method == 'DELETE':
@@ -673,6 +729,7 @@ def modules_collection(request):
                 efm_fin_module=_bool(data.get('efm_fin_module'), True),
                 date_efm=_parse_date(data.get('date_efm')),
                 seances_2_5_autorisees=_bool(data.get('seances_2_5_autorisees'), True),
+                heures_hebdomadaires=_float_or_default(data.get('heures_hebdomadaires'), 5.0),
             )
             types_ids = data.get('types_salles_compatibles') or data.get('types_salles_ids') or []
             if types_ids:
@@ -713,6 +770,10 @@ def module_detail(request, pk):
             module.date_efm = _parse_date(data.get('date_efm'))
         if 'seances_2_5_autorisees' in data:
             module.seances_2_5_autorisees = _bool(data.get('seances_2_5_autorisees'), True)
+        if 'heures_hebdomadaires' in data:
+            module.heures_hebdomadaires = _float_or_default(
+                data.get('heures_hebdomadaires'), 5.0
+            )
         module.save()
         if 'types_salles_compatibles' in data or 'types_salles_ids' in data:
             types_ids = data.get('types_salles_compatibles') or data.get('types_salles_ids') or []

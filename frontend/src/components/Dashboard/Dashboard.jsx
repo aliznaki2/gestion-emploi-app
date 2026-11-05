@@ -872,7 +872,7 @@ function DeleteGroupeModal({ groupe, onClose, onConfirm, loading }) {
 }
 
 // ─── Modal Créer / Modifier Formateur ─────────────────────────────────────────
-function ProfesseurModal({ prof, salles = [], modules = [], onClose, onSave }) {
+function ProfesseurModal({ prof, salles = [], modules = [], groupes = [], filieres = [], onClose, onSave }) {
   const isEdit = Boolean(prof?.id)
   const [nomComplet, setNomComplet] = useState(prof?.nom_complet || '')
   const [matricule, setMatricule] = useState(prof?.matricule || '')
@@ -887,6 +887,15 @@ function ProfesseurModal({ prof, salles = [], modules = [], onClose, onSave }) {
       ? prof.module_ids
       : (prof?.modules || []).map(m => m.id)
   )
+  const [affectations, setAffectations] = useState(() => {
+    const map = {}
+    ;(prof?.affectations || []).forEach(a => {
+      const key = String(a.module_id)
+      if (!map[key]) map[key] = []
+      map[key].push(a.groupe_id)
+    })
+    return map
+  })
   const [moduleSearch, setModuleSearch] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -898,10 +907,51 @@ function ProfesseurModal({ prof, salles = [], modules = [], onClose, onSave }) {
       (m.intitule || '').toLowerCase().includes(q)
   })
 
+  const groupesPourModule = (moduleId) => {
+    const filiereIds = new Set(
+      filieres
+        .filter(f => (f.module_ids || []).includes(moduleId))
+        .map(f => f.id)
+    )
+    const assigned = new Set(affectations[String(moduleId)] || [])
+    if (filiereIds.size === 0) {
+      return groupes.filter(g => g.actif !== false || assigned.has(g.id))
+    }
+    return groupes.filter(g =>
+      filiereIds.has(g.filiere_id) || assigned.has(g.id)
+    )
+  }
+
   const toggleModule = (id) => {
-    setModuleIds(prev => prev.includes(id)
-      ? prev.filter(x => x !== id)
-      : [...prev, id])
+    const key = String(id)
+    if (moduleIds.includes(id)) {
+      setModuleIds(prev => prev.filter(x => x !== id))
+      setAffectations(prev => {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
+    } else {
+      setModuleIds(prev => [...prev, id])
+      setAffectations(prev => ({ ...prev, [key]: prev[key] || [] }))
+    }
+  }
+
+  const toggleGroupe = (moduleId, groupeId) => {
+    const key = String(moduleId)
+    setAffectations(prev => {
+      const current = prev[key] || []
+      return {
+        ...prev,
+        [key]: current.includes(groupeId)
+          ? current.filter(x => x !== groupeId)
+          : [...current, groupeId],
+      }
+    })
+  }
+
+  const setGroupesModule = (moduleId, groupeIds) => {
+    setAffectations(prev => ({ ...prev, [String(moduleId)]: groupeIds }))
   }
 
   const handleSubmit = async (e) => {
@@ -924,6 +974,12 @@ function ProfesseurModal({ prof, salles = [], modules = [], onClose, onSave }) {
         salle_preferee_matin_id: sallePrefereeMatin ? +sallePrefereeMatin : null,
         salle_preferee_apm_id: sallePrefereeApm ? +sallePrefereeApm : null,
         module_ids: moduleIds,
+        affectations: moduleIds.flatMap(moduleId =>
+          (affectations[String(moduleId)] || []).map(groupeId => ({
+            module_id: moduleId,
+            groupe_id: groupeId,
+          }))
+        ),
       }
 
       let res
@@ -1130,6 +1186,91 @@ function ProfesseurModal({ prof, salles = [], modules = [], onClose, onSave }) {
             </div>
             <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
               Cochez les modules que ce formateur peut enseigner.
+            </div>
+          </div>
+
+          <div className="modal-field">
+            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>Groupes par module</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#1d4ed8' }}>
+                {moduleIds.length} module{moduleIds.length > 1 ? 's' : ''}
+              </span>
+            </label>
+            <div style={{
+              maxHeight: 260, overflowY: 'auto', border: '1px solid #e2e8f0',
+              borderRadius: 8, background: '#f8fafc', padding: '8px 10px'
+            }}>
+              {moduleIds.length === 0 ? (
+                <div style={{ padding: 12, fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
+                  Cochez d'abord un ou plusieurs modules ci-dessus.
+                </div>
+              ) : modules.filter(m => moduleIds.includes(m.id)).map(m => {
+                const groupesModule = groupesPourModule(m.id)
+                const selection = affectations[String(m.id)] || []
+                return (
+                  <div key={m.id} style={{
+                    padding: '8px 0', borderBottom: '1px solid #e2e8f0'
+                  }}>
+                    <div style={{
+                      display: 'flex', alignItems: 'center',
+                      justifyContent: 'space-between', gap: 8, marginBottom: 6
+                    }}>
+                      <span style={{ fontSize: 12, color: '#0f2d5e' }}>
+                        <strong>{m.code}</strong> — {m.intitule}
+                      </span>
+                      <span style={{ fontSize: 11, color: '#64748b', whiteSpace: 'nowrap' }}>
+                        {selection.length} groupe{selection.length > 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {groupesModule.length === 0 ? (
+                        <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                          Aucun groupe disponible pour ce module.
+                        </span>
+                      ) : groupesModule.map(g => (
+                        <label key={g.id} style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 5,
+                          fontSize: 11, color: '#334155', background: '#fff',
+                          border: '1px solid #cbd5e1', borderRadius: 5,
+                          padding: '3px 7px', cursor: 'pointer'
+                        }}>
+                          <input
+                            type="checkbox"
+                            checked={selection.includes(g.id)}
+                            onChange={() => toggleGroupe(m.id, g.id)}
+                            style={{ width: 13, height: 13, cursor: 'pointer' }}
+                          />
+                          {g.code}
+                        </label>
+                      ))}
+                    </div>
+                    {groupesModule.length > 0 && (
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ padding: '2px 8px', fontSize: 10 }}
+                          onClick={() => setGroupesModule(m.id, groupesModule.map(g => g.id))}
+                        >
+                          Tous
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ padding: '2px 8px', fontSize: 10 }}
+                          onClick={() => setGroupesModule(m.id, [])}
+                        >
+                          Aucun
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, lineHeight: 1.5 }}>
+              Cochez les groupes auxquels ce formateur enseigne chaque module.
+              Sans groupe coché, les séances de ce module seront générées sans formateur.
             </div>
           </div>
 
@@ -1351,6 +1492,9 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
   const [efmFinModule, setEfmFinModule] = useState(module?.efm_fin_module ?? true)
   const [dateEfm, setDateEfm] = useState(module?.date_efm || '')
   const [seances25, setSeances25] = useState(module?.seances_2_5_autorisees ?? true)
+  const [heuresHebdo, setHeuresHebdo] = useState(
+    module?.heures_hebdomadaires != null ? String(module.heures_hebdomadaires) : '5'
+  )
   const [typesCompatibles, setTypesCompatibles] = useState(
     module?.types_salles_ids || module?.types_salles_compatibles || []
   )
@@ -1384,6 +1528,7 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
         efm_fin_module: efmFinModule,
         date_efm: dateEfm || null,
         seances_2_5_autorisees: seances25,
+        heures_hebdomadaires: heuresHebdo === '' ? 0 : +heuresHebdo,
         types_salles_compatibles: typesCompatibles.map(Number),
       }
       const res = isEdit
@@ -1479,6 +1624,24 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
           <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, lineHeight: 1.5 }}>
             Activé par défaut : le moteur peut générer des séances isolées de 2,5 h.
             Décochez cette case pour planifier ce module uniquement en blocs de 5 h.
+          </div>
+
+          <div className="modal-field">
+            <label>Heures par semaine (par groupe) *</label>
+            <input
+              type="number"
+              min="0"
+              step="2.5"
+              placeholder="Ex: 5"
+              value={heuresHebdo}
+              onChange={e => setHeuresHebdo(e.target.value)}
+              required
+            />
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, lineHeight: 1.5 }}>
+              Volume horaire planifié chaque semaine pour ce module, pour chaque groupe
+              qui l'étudie. Les séances sont arrondies à 2,5 h (ou à 5 h si les séances
+              de 2,5 h sont désactivées).
+            </div>
           </div>
 
           <div className="modal-field">
@@ -2288,6 +2451,13 @@ export default function Dashboard({ role = 'admin', onLogout }) {
       setDeletingProfLoading(false)
     }
   }
+
+  const groupesAssignesProf = (prof, moduleId) => (
+    (prof?.affectations || [])
+      .filter(a => a.module_id === moduleId)
+      .map(a => (groupes.find(g => g.id === a.groupe_id) || {}).code)
+      .filter(Boolean)
+  )
 
   const filteredProfsList = useMemo(() => {
     return professeurs.filter(p => {
@@ -3526,7 +3696,12 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                                   {(p.modules || []).slice(0, 3).map(m => (
                                     <span
                                       key={m.id}
-                                      title={m.intitule}
+                                      title={(() => {
+                                        const codes = groupesAssignesProf(p, m.id)
+                                        return codes.length
+                                          ? `${m.intitule} — Groupes : ${codes.join(', ')}`
+                                          : m.intitule
+                                      })()}
                                       style={{
                                         background: '#eff6ff', color: '#1d4ed8', padding: '2px 7px',
                                         borderRadius: 4, border: '1px solid #bfdbfe', fontSize: 11, fontWeight: 600
@@ -3983,6 +4158,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                         <th style={{ padding: '14px 18px', textAlign: 'center' }}>Régional</th>
                         <th style={{ padding: '14px 18px', textAlign: 'center' }}>EFM</th>
                         <th style={{ padding: '14px 18px', textAlign: 'center' }}>Séances</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>Heures / sem.</th>
                         <th style={{ padding: '14px 18px' }}>Salles compatibles</th>
                         <th style={{ padding: '14px 18px', textAlign: 'right' }}>Actions</th>
                       </tr>
@@ -3990,7 +4166,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                     <tbody>
                       {filteredModulesList.length === 0 ? (
                         <tr>
-                          <td colSpan={8} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
+                          <td colSpan={9} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
                             <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>Aucun module trouvé</div>
                             <div style={{ fontSize: 13, marginTop: 4 }}>Modifiez votre filtre ou terme de recherche</div>
                           </td>
@@ -4051,6 +4227,9 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                             }}>
                               {m.peut_avoir_seance_2_5 ? '5 h / 2,5 h' : '5 h'}
                             </span>
+                          </td>
+                          <td style={{ padding: '14px 18px', textAlign: 'center', fontWeight: 700, color: '#1d4ed8' }}>
+                            {m.heures_hebdomadaires != null ? `${m.heures_hebdomadaires} h` : '—'}
                           </td>
                           <td style={{ padding: '14px 18px', color: '#475569', fontSize: 12 }}>
                             {m.types_salles_libelles?.length ? m.types_salles_libelles.join(', ') : 'Toutes'}
@@ -4482,6 +4661,8 @@ export default function Dashboard({ role = 'admin', onLogout }) {
           prof={editingProf}
           salles={salles}
           modules={modules}
+          groupes={groupes}
+          filieres={filieres}
           onClose={() => {
             setProfModalOpen(false)
             setEditingProf(null)

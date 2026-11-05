@@ -9,6 +9,7 @@ from .models import (
     Creneau, Disponibilite, UniteEnseignement, UniteGroupe,
     VolumeHoraire, UniteProfesseur, Passage, TacheGeneration,
     Journal, Seance, SeanceGroupe, SeanceProfesseur,
+    AffectationEnseignement,
 )
 
 
@@ -126,6 +127,17 @@ class UniteEnseignementAdmin(admin.ModelAdmin):
     list_filter = ('annee_scolaire', 'semestre', 'module__type_module')
     search_fields = ('module__code', 'module__intitule', 'code_fusion')
     inlines = [UniteGroupeInline, UniteProfesseurInline, VolumeHoraireInline]
+
+
+@admin.register(AffectationEnseignement)
+class AffectationEnseignementAdmin(admin.ModelAdmin):
+    list_display = ('professeur', 'module', 'groupe')
+    list_filter = ('module', 'groupe')
+    search_fields = (
+        'professeur__nom_complet', 'professeur__matricule',
+        'module__code', 'groupe__code',
+    )
+    autocomplete_fields = ('professeur', 'module', 'groupe')
 
 
 @admin.register(Passage)
