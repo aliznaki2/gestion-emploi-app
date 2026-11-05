@@ -141,6 +141,15 @@ class CalculateurHeures:
             .values_list('unite_id', flat=True)
         )
 
+        # Affectations (module, groupe) → formateurs, chargées en une seule requête.
+        groupe_ids_autorises = [g.id for g in groupes]
+        profs_par_couple: Dict[tuple, set] = defaultdict(set)
+        for module_id, groupe_id, prof_id in AffectationEnseignement.objects.filter(
+            professeur__actif=True,
+            groupe_id__in=groupe_ids_autorises,
+        ).values_list('module_id', 'groupe_id', 'professeur_id'):
+            profs_par_couple[(module_id, groupe_id)].add(prof_id)
+
         # Regrouper les besoins par (module, unité d'enseignement).
         lignes: Dict[tuple, Dict[str, object]] = {}
         for groupe in groupes:
@@ -177,12 +186,9 @@ class CalculateurHeures:
                 continue
 
             prof_ids = sorted({
-                a.professeur_id
-                for a in AffectationEnseignement.objects.filter(
-                    module_id=module_id,
-                    groupe_id__in=groupe_ids,
-                    professeur__actif=True,
-                )
+                prof_id
+                for groupe_id in groupe_ids
+                for prof_id in profs_par_couple.get((module_id, groupe_id), ())
             })
 
             # Tous les formateurs affectés sont indisponibles toute la semaine.

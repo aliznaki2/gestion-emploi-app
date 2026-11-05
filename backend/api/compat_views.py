@@ -216,6 +216,33 @@ def _sync_affectations(prof, data):
     ], ignore_conflicts=True)
 
 
+def _recompute_prof_modules(prof):
+    """Synchronise les modules d'un formateur avec ses affectations.
+
+    Les modules enseignés ne sont plus saisis dans la fiche formateur : ils
+    découlent des couples (module, groupe) définis dans l'onglet Affectations.
+    """
+    module_ids = prof.affectations_enseignement.values_list('module_id', flat=True)
+    prof.modules.set(Module.objects.filter(id__in=module_ids))
+
+
+def _affectation_data(a):
+    return {
+        'id': a.id,
+        'professeur_id': a.professeur_id,
+        'professeur_nom': a.professeur.nom_complet,
+        'matricule': a.professeur.matricule,
+        'module_id': a.module_id,
+        'module_code': a.module.code,
+        'module_intitule': a.module.intitule,
+        'module_heures': float(a.module.heures_hebdomadaires or 0),
+        'groupe_id': a.groupe_id,
+        'groupe_code': a.groupe.code,
+        'filiere_id': a.groupe.filiere_id,
+        'filiere_code': a.groupe.filiere.code if a.groupe.filiere_id else None,
+    }
+
+
 def _professeur_data(p):
     email = ''
     if getattr(p, 'utilisateur', None):
@@ -1099,6 +1126,100 @@ def indisponibilite_detail(request, pk):
     if request.method == 'DELETE':
         ind.delete()
         return JsonResponse({'success': True, 'message': 'Indisponibilité supprimée.'})
+
+    return _error('Méthode non autorisée.', 405)
+
+
+# ─── CRUD : Affectations Module / Groupe / Formateur ─────────────────────────
+@csrf_exempt
+def affectations_collection(request):
+    """GET /api/affectations — liste des affectations (module, groupe, formateur).
+
+    POST /api/affectations — affecte un formateur à un module pour un groupe.
+    """
+    if request.method == 'GET':
+        qs = AffectationEnseignement.objects.select_related(
+            'professeur', 'module', 'groupe__filiere'
+        ).order_by('groupe__code', 'module__code', 'professeur__nom_complet')
+
+        prof_id = _int_or_none(request.GET.get('professeur_id'))
+        module_id = _int_or_none(request.GET.get('module_id'))
+        groupe_id = _int_or_none(request.GET.get('groupe_id'))
+        if prof_id:
+            qs = qs.filter(professeur_id=prof_id)
+        if module_id:
+            qs = qs.filter(module_id=module_id)
+        if groupe_id:
+            qs = qs.filter(groupe_id=groupe_id)
+
+        return JsonResponse([_affectation_data(a) for a in qs], safe=False)
+
+    if request.method != 'POST':
+        return _error('Méthode non autorisée.', 405)
+
+    data = _body(request)
+    prof = _get_or_none(Professeur, _value(data, 'professeur_id', 'professeur'))
+    module = _get_or_none(Module, _value(data, 'module_id', 'module'))
+    groupe = _get_or_none(Groupe, _value(data, 'groupe_id', 'groupe'))
+    if not prof:
+        return _error('Formateur introuvable.')
+    if not module:
+        return _error('Module introuvable.')
+    if not groupe:
+        return _error('Groupe introuvable.')
+
+    affectation, created = AffectationEnseignement.objects.get_or_create(
+        professeur=prof, module=module, groupe=groupe
+    )
+    _recompute_prof_modules(prof)
+    return JsonResponse(
+        _affectation_data(affectation),
+        status=201 if created else 200,
+    )
+
+
+@csrf_exempt
+def affectation_detail(request, pk):
+    affectation = AffectationEnseignement.objects.select_related(
+        'professeur', 'module', 'groupe__filiere'
+    ).filter(pk=pk).first()
+    if not affectation:
+        return _error('Affectation introuvable.', 404)
+
+    if request.method == 'GET':
+        return JsonResponse(_affectation_data(affectation))
+
+    if request.method in ('PUT', 'PATCH'):
+        data = _body(request)
+        prof = _get_or_none(Professeur, _value(data, 'professeur_id', 'professeur')) \
+            or affectation.professeur
+        module = _get_or_none(Module, _value(data, 'module_id', 'module')) \
+            or affectation.module
+        groupe = _get_or_none(Groupe, _value(data, 'groupe_id', 'groupe')) \
+            or affectation.groupe
+
+        doublon = AffectationEnseignement.objects.filter(
+            professeur=prof, module=module, groupe=groupe
+        ).exclude(pk=affectation.pk).exists()
+        if doublon:
+            return _error('Cette affectation existe déjà.')
+
+        ancien_prof = affectation.professeur
+        affectation.professeur = prof
+        affectation.module = module
+        affectation.groupe = groupe
+        affectation.save()
+        _recompute_prof_modules(prof)
+        if ancien_prof.pk != prof.pk:
+            _recompute_prof_modules(ancien_prof)
+        affectation.refresh_from_db()
+        return JsonResponse(_affectation_data(affectation))
+
+    if request.method == 'DELETE':
+        prof = affectation.professeur
+        affectation.delete()
+        _recompute_prof_modules(prof)
+        return JsonResponse({'success': True, 'message': 'Affectation supprimée.'})
 
     return _error('Méthode non autorisée.', 405)
 

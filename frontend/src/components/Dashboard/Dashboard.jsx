@@ -872,7 +872,7 @@ function DeleteGroupeModal({ groupe, onClose, onConfirm, loading }) {
 }
 
 // ─── Modal Créer / Modifier Formateur ─────────────────────────────────────────
-function ProfesseurModal({ prof, salles = [], modules = [], groupes = [], filieres = [], onClose, onSave }) {
+function ProfesseurModal({ prof, salles = [], onClose, onSave }) {
   const isEdit = Boolean(prof?.id)
   const [nomComplet, setNomComplet] = useState(prof?.nom_complet || '')
   const [matricule, setMatricule] = useState(prof?.matricule || '')
@@ -882,77 +882,8 @@ function ProfesseurModal({ prof, salles = [], modules = [], groupes = [], filier
   const [heuresMax, setHeuresMax] = useState(prof?.heures_max_semaine || '')
   const [sallePrefereeMatin, setSallePrefereeMatin] = useState(prof?.salle_preferee_matin_id || '')
   const [sallePrefereeApm, setSallePrefereeApm] = useState(prof?.salle_preferee_apm_id || '')
-  const [moduleIds, setModuleIds] = useState(
-    Array.isArray(prof?.module_ids)
-      ? prof.module_ids
-      : (prof?.modules || []).map(m => m.id)
-  )
-  const [affectations, setAffectations] = useState(() => {
-    const map = {}
-    ;(prof?.affectations || []).forEach(a => {
-      const key = String(a.module_id)
-      if (!map[key]) map[key] = []
-      map[key].push(a.groupe_id)
-    })
-    return map
-  })
-  const [moduleSearch, setModuleSearch] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-
-  const modulesFiltres = modules.filter(m => {
-    const q = moduleSearch.trim().toLowerCase()
-    if (!q) return true
-    return (m.code || '').toLowerCase().includes(q) ||
-      (m.intitule || '').toLowerCase().includes(q)
-  })
-
-  const groupesPourModule = (moduleId) => {
-    const filiereIds = new Set(
-      filieres
-        .filter(f => (f.module_ids || []).includes(moduleId))
-        .map(f => f.id)
-    )
-    const assigned = new Set(affectations[String(moduleId)] || [])
-    if (filiereIds.size === 0) {
-      return groupes.filter(g => g.actif !== false || assigned.has(g.id))
-    }
-    return groupes.filter(g =>
-      filiereIds.has(g.filiere_id) || assigned.has(g.id)
-    )
-  }
-
-  const toggleModule = (id) => {
-    const key = String(id)
-    if (moduleIds.includes(id)) {
-      setModuleIds(prev => prev.filter(x => x !== id))
-      setAffectations(prev => {
-        const next = { ...prev }
-        delete next[key]
-        return next
-      })
-    } else {
-      setModuleIds(prev => [...prev, id])
-      setAffectations(prev => ({ ...prev, [key]: prev[key] || [] }))
-    }
-  }
-
-  const toggleGroupe = (moduleId, groupeId) => {
-    const key = String(moduleId)
-    setAffectations(prev => {
-      const current = prev[key] || []
-      return {
-        ...prev,
-        [key]: current.includes(groupeId)
-          ? current.filter(x => x !== groupeId)
-          : [...current, groupeId],
-      }
-    })
-  }
-
-  const setGroupesModule = (moduleId, groupeIds) => {
-    setAffectations(prev => ({ ...prev, [String(moduleId)]: groupeIds }))
-  }
 
   const handleSubmit = async (e) => {
     e?.preventDefault()
@@ -973,13 +904,6 @@ function ProfesseurModal({ prof, salles = [], modules = [], groupes = [], filier
         heures_max_semaine: heuresMax ? +heuresMax : null,
         salle_preferee_matin_id: sallePrefereeMatin ? +sallePrefereeMatin : null,
         salle_preferee_apm_id: sallePrefereeApm ? +sallePrefereeApm : null,
-        module_ids: moduleIds,
-        affectations: moduleIds.flatMap(moduleId =>
-          (affectations[String(moduleId)] || []).map(groupeId => ({
-            module_id: moduleId,
-            groupe_id: groupeId,
-          }))
-        ),
       }
 
       let res
@@ -1126,152 +1050,20 @@ function ProfesseurModal({ prof, salles = [], modules = [], groupes = [], filier
             </div>
           </div>
 
-          <div className="modal-field">
-            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span>Modules enseignés</span>
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#1d4ed8' }}>
-                {moduleIds.length} sélectionné{moduleIds.length > 1 ? 's' : ''}
-              </span>
-            </label>
-            <input
-              type="text"
-              placeholder="Rechercher un module (code ou intitulé)…"
-              value={moduleSearch}
-              onChange={e => setModuleSearch(e.target.value)}
-              style={{ marginBottom: 8 }}
-            />
-            <div style={{
-              maxHeight: 180, overflowY: 'auto', border: '1px solid #e2e8f0',
-              borderRadius: 8, background: '#f8fafc', padding: '6px 8px'
-            }}>
-              {modulesFiltres.length === 0 ? (
-                <div style={{ padding: 12, fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
-                  Aucun module trouvé
-                </div>
-              ) : modulesFiltres.map(m => (
-                <label key={m.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
-                  color: '#334155', padding: '5px 4px', cursor: 'pointer',
-                  borderBottom: '1px solid #eef2f7'
-                }}>
-                  <input
-                    type="checkbox"
-                    checked={moduleIds.includes(m.id)}
-                    onChange={() => toggleModule(m.id)}
-                    style={{ width: 15, height: 15, cursor: 'pointer' }}
-                  />
-                  <span>
-                    <strong style={{ color: '#0f2d5e' }}>{m.code}</strong> — {m.intitule}
-                  </span>
-                </label>
-              ))}
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                style={{ padding: '4px 10px', fontSize: 11 }}
-                onClick={() => setModuleIds(modulesFiltres.map(m => m.id))}
-              >
-                Tout cocher
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                style={{ padding: '4px 10px', fontSize: 11 }}
-                onClick={() => setModuleIds([])}
-              >
-                Tout décocher
-              </button>
-            </div>
-            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
-              Cochez les modules que ce formateur peut enseigner.
-            </div>
-          </div>
-
-          <div className="modal-field">
-            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span>Groupes par module</span>
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#1d4ed8' }}>
-                {moduleIds.length} module{moduleIds.length > 1 ? 's' : ''}
-              </span>
-            </label>
-            <div style={{
-              maxHeight: 260, overflowY: 'auto', border: '1px solid #e2e8f0',
-              borderRadius: 8, background: '#f8fafc', padding: '8px 10px'
-            }}>
-              {moduleIds.length === 0 ? (
-                <div style={{ padding: 12, fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
-                  Cochez d'abord un ou plusieurs modules ci-dessus.
-                </div>
-              ) : modules.filter(m => moduleIds.includes(m.id)).map(m => {
-                const groupesModule = groupesPourModule(m.id)
-                const selection = affectations[String(m.id)] || []
-                return (
-                  <div key={m.id} style={{
-                    padding: '8px 0', borderBottom: '1px solid #e2e8f0'
-                  }}>
-                    <div style={{
-                      display: 'flex', alignItems: 'center',
-                      justifyContent: 'space-between', gap: 8, marginBottom: 6
-                    }}>
-                      <span style={{ fontSize: 12, color: '#0f2d5e' }}>
-                        <strong>{m.code}</strong> — {m.intitule}
-                      </span>
-                      <span style={{ fontSize: 11, color: '#64748b', whiteSpace: 'nowrap' }}>
-                        {selection.length} groupe{selection.length > 1 ? 's' : ''}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {groupesModule.length === 0 ? (
-                        <span style={{ fontSize: 11, color: '#94a3b8' }}>
-                          Aucun groupe disponible pour ce module.
-                        </span>
-                      ) : groupesModule.map(g => (
-                        <label key={g.id} style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 5,
-                          fontSize: 11, color: '#334155', background: '#fff',
-                          border: '1px solid #cbd5e1', borderRadius: 5,
-                          padding: '3px 7px', cursor: 'pointer'
-                        }}>
-                          <input
-                            type="checkbox"
-                            checked={selection.includes(g.id)}
-                            onChange={() => toggleGroupe(m.id, g.id)}
-                            style={{ width: 13, height: 13, cursor: 'pointer' }}
-                          />
-                          {g.code}
-                        </label>
-                      ))}
-                    </div>
-                    {groupesModule.length > 0 && (
-                      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                        <button
-                          type="button"
-                          className="btn btn-ghost"
-                          style={{ padding: '2px 8px', fontSize: 10 }}
-                          onClick={() => setGroupesModule(m.id, groupesModule.map(g => g.id))}
-                        >
-                          Tous
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-ghost"
-                          style={{ padding: '2px 8px', fontSize: 10 }}
-                          onClick={() => setGroupesModule(m.id, [])}
-                        >
-                          Aucun
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, lineHeight: 1.5 }}>
-              Cochez les groupes auxquels ce formateur enseigne chaque module.
-              Sans groupe coché, les séances de ce module seront générées sans formateur.
-            </div>
+          <div style={{
+            marginTop: 4,
+            padding: '12px 14px',
+            background: '#eff6ff',
+            border: '1px solid #bfdbfe',
+            borderRadius: 8,
+            fontSize: 12,
+            color: '#1e3a8a',
+            lineHeight: 1.55
+          }}>
+            <strong>Modules et groupes</strong><br />
+            Les modules enseignés et les groupes associés se gèrent désormais dans
+            l'onglet <strong>Affectations</strong> (Groupe + Module → Formateur).
+            La génération de l'emploi du temps s'appuie sur ces affectations.
           </div>
 
           <div className="modal-actions" style={{ marginTop: 24 }}>
@@ -1309,6 +1101,164 @@ function DeleteProfesseurModal({ prof, onClose, onConfirm, loading }) {
           </button>
           <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={loading}>
             {loading ? 'Suppression…' : 'Oui, supprimer'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal Affecter un formateur à un couple Groupe + Module ─────────────────
+function AffectationModal({ row, professeurs = [], onClose, onSave }) {
+  const [profId, setProfId] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  if (!row) return null
+
+  const dejaAffectes = new Set((row.affectations || []).map(a => a.professeur_id))
+  const candidats = professeurs.filter(p => p.actif !== false && !dejaAffectes.has(p.id))
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault()
+    if (!profId) {
+      setError('Veuillez sélectionner un formateur.')
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      const res = await apiFetch(`${API}/affectations`, {
+        method: 'POST',
+        body: JSON.stringify({
+          professeur_id: +profId,
+          module_id: row.module.id,
+          groupe_id: row.groupe.id,
+        }),
+      })
+      onSave(res)
+    } catch (err) {
+      setError(err.message || 'Une erreur est survenue')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 18, color: '#0f2d5e' }}>
+            Affecter un formateur
+          </h3>
+          <button
+            onClick={onClose}
+            type="button"
+            style={{ fontSize: 20, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}
+          >
+            ×
+          </button>
+        </div>
+
+        {error && (
+          <div className="alert-banner error" style={{ marginBottom: 16 }}>
+            <span>{error}</span>
+          </div>
+        )}
+
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10,
+          background: '#f8fafc', border: '1px solid #e2e8f0',
+          borderRadius: 8, padding: '12px 14px', marginBottom: 18
+        }}>
+          <div>
+            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Groupe</div>
+            <div style={{ fontSize: 14, color: '#0f2d5e', fontWeight: 700 }}>{row.groupe.code}</div>
+            <div style={{ fontSize: 11, color: '#64748b' }}>{row.filiere?.code || '—'}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Module</div>
+            <div style={{ fontSize: 14, color: '#0f2d5e', fontWeight: 700 }}>{row.module.code}</div>
+            <div style={{ fontSize: 11, color: '#64748b' }}>{row.module.intitule}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Heures / sem.</div>
+            <div style={{ fontSize: 14, color: '#1d4ed8', fontWeight: 700 }}>
+              {row.module.heures_hebdomadaires != null ? `${row.module.heures_hebdomadaires} h` : '—'}
+            </div>
+          </div>
+          {row.horsFiliere && (
+            <div style={{ fontSize: 11, color: '#b45309', fontWeight: 600, alignSelf: 'center' }}>
+              Module hors filière
+            </div>
+          )}
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div className="modal-field">
+            <label>Formateur *</label>
+            <select
+              value={profId}
+              onChange={e => setProfId(e.target.value)}
+              required
+              autoFocus
+            >
+              <option value="">— Sélectionner un formateur —</option>
+              {candidats.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.nom_complet}{p.matricule ? ` (${p.matricule})` : ''}
+                </option>
+              ))}
+            </select>
+            {candidats.length === 0 && (
+              <div style={{ fontSize: 11, color: '#b45309', marginTop: 6 }}>
+                Tous les formateurs actifs sont déjà affectés à ce couple groupe + module.
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 6, lineHeight: 1.5 }}>
+              Le formateur enseignera ce module à ce groupe. Sans affectation, les
+              séances de ce module seront générées sans formateur.
+            </div>
+          </div>
+
+          <div className="modal-actions" style={{ marginTop: 24 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
+              Annuler
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={loading || candidats.length === 0}>
+              {loading ? 'Affectation…' : 'Affecter'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal Confirmation Suppression Affectation ──────────────────────────────
+function DeleteAffectationModal({ affectation, onClose, onConfirm, loading }) {
+  if (!affectation) return null
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
+        <h3 style={{ margin: 0, fontSize: 18, color: '#dc2626' }}>
+          Retirer l'affectation
+        </h3>
+        <p style={{ margin: '16px 0 8px', fontSize: 14, color: '#334155', lineHeight: 1.5 }}>
+          Retirer <strong>{affectation.professeur_nom}</strong> du module{' '}
+          <strong>{affectation.module_code}</strong> pour le groupe{' '}
+          <strong>{affectation.groupe_code}</strong> ?
+        </p>
+        <p style={{ margin: '0 0 20px', fontSize: 12, color: '#64748b', background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', lineHeight: 1.4 }}>
+          Les séances de ce module pour ce groupe seront ensuite générées sans formateur,
+          sauf si un autre formateur est affecté.
+        </p>
+        <div className="modal-actions">
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
+            Annuler
+          </button>
+          <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={loading}>
+            {loading ? 'Suppression…' : 'Oui, retirer'}
           </button>
         </div>
       </div>
@@ -2219,6 +2169,15 @@ export default function Dashboard({ role = 'admin', onLogout }) {
   const [filiereSearch, setFiliereSearch] = useState('')
   const [filiereSecteurFilter, setFiliereSecteurFilter] = useState('all')
 
+  // Affectations Groupe + Module → Formateur
+  const [affectations, setAffectations] = useState([])
+  const [affectationRow, setAffectationRow] = useState(null)
+  const [deletingAffectation, setDeletingAffectation] = useState(null)
+  const [deletingAffectationLoading, setDeletingAffectationLoading] = useState(false)
+  const [affectationSearch, setAffectationSearch] = useState('')
+  const [affectationFiliereFilter, setAffectationFiliereFilter] = useState('all')
+  const [affectationStatutFilter, setAffectationStatutFilter] = useState('all')
+
   const [toasts, setToasts] = useState([])
   const [dbStatus, setDbStatus] = useState(null)
 
@@ -2238,7 +2197,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
           sw = await apiFetch(`${API}/semaines`)
         }
 
-        const [g, p, sl, cr, u, f, ts, hc, m, sec, ind] = await Promise.all([
+        const [g, p, sl, cr, u, f, ts, hc, m, sec, ind, aff] = await Promise.all([
           apiFetch(`${API}/groupes`),
           apiFetch(`${API}/professeurs`),
           apiFetch(`${API}/salles`),
@@ -2250,6 +2209,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
           apiFetch(`${API}/modules`).catch(() => []),
           apiFetch(`${API}/secteurs`).catch(() => []),
           apiFetch(`${API}/indisponibilites`).catch(() => []),
+          apiFetch(`${API}/affectations`).catch(() => []),
         ])
         setSemaines(sw)
         setGroupes(g)
@@ -2262,6 +2222,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
         setModules(m)
         setSecteurs(sec)
         setIndisponibilites(ind)
+        setAffectations(aff)
         setDbStatus(hc.status)
         if (sw.length > 0) setSelectedSemaine(sw[0])
       } catch (e) {
@@ -2477,6 +2438,111 @@ export default function Dashboard({ role = 'admin', onLogout }) {
       return matchSearch && matchStatut
     })
   }, [professeurs, profSearch, profStatutFilter])
+
+  // ── Affectations : lignes Groupe + Module issues des filières ──────────────
+  const affectationRows = useMemo(() => {
+    const parCouple = new Map()
+    affectations.forEach(a => {
+      const key = `${a.groupe_id}-${a.module_id}`
+      if (!parCouple.has(key)) parCouple.set(key, [])
+      parCouple.get(key).push(a)
+    })
+
+    const rows = []
+    const vus = new Set()
+
+    groupes.forEach(g => {
+      const filiere = filieres.find(f => f.id === g.filiere_id)
+      ;(filiere?.module_ids || []).forEach(moduleId => {
+        const module = modules.find(m => m.id === moduleId)
+        if (!module) return
+        const key = `${g.id}-${moduleId}`
+        vus.add(key)
+        rows.push({
+          key,
+          groupe: g,
+          filiere,
+          module,
+          affectations: parCouple.get(key) || [],
+        })
+      })
+    })
+
+    // Affectations existantes dont le module n'est plus coché dans la filière.
+    parCouple.forEach((list, key) => {
+      if (vus.has(key)) return
+      const a = list[0]
+      const groupe = groupes.find(g => g.id === a.groupe_id)
+      const module = modules.find(m => m.id === a.module_id)
+      if (!groupe || !module) return
+      rows.push({
+        key,
+        groupe,
+        filiere: filieres.find(f => f.id === groupe.filiere_id),
+        module,
+        affectations: list,
+        horsFiliere: true,
+      })
+    })
+
+    return rows.sort((a, b) => {
+      const g = (a.groupe.code || '').localeCompare(b.groupe.code || '', undefined, { numeric: true })
+      if (g !== 0) return g
+      return (a.module.code || '').localeCompare(b.module.code || '', undefined, { numeric: true })
+    })
+  }, [groupes, filieres, modules, affectations])
+
+  const filteredAffectationRows = useMemo(() => {
+    const q = (affectationSearch || '').trim().toLowerCase()
+    return affectationRows.filter(row => {
+      const matchSearch = !q ||
+        (row.groupe.code || '').toLowerCase().includes(q) ||
+        (row.filiere?.code || '').toLowerCase().includes(q) ||
+        (row.module.code || '').toLowerCase().includes(q) ||
+        (row.module.intitule || '').toLowerCase().includes(q) ||
+        (row.affectations || []).some(a =>
+          (a.professeur_nom || '').toLowerCase().includes(q) ||
+          (a.matricule || '').toLowerCase().includes(q)
+        )
+      const matchFiliere = affectationFiliereFilter === 'all' ||
+        String(row.groupe.filiere_id) === String(affectationFiliereFilter)
+      const matchStatut = affectationStatutFilter === 'all' ||
+        (affectationStatutFilter === 'affecte'
+          ? row.affectations.length > 0
+          : row.affectations.length === 0)
+      return matchSearch && matchFiliere && matchStatut
+    })
+  }, [affectationRows, affectationSearch, affectationFiliereFilter, affectationStatutFilter])
+
+  const handleSaveAffectation = (saved) => {
+    setAffectations(prev => (
+      prev.some(a => a.id === saved.id) ? prev : [...prev, saved]
+    ))
+    addToast(
+      `${saved.professeur_nom} affecté à ${saved.module_code} / ${saved.groupe_code}`,
+      'success'
+    )
+    setAffectationRow(null)
+    apiFetch(`${API}/professeurs`).then(setProfesseurs).catch(() => {})
+  }
+
+  const handleDeleteAffectationConfirm = async () => {
+    if (!deletingAffectation) return
+    setDeletingAffectationLoading(true)
+    try {
+      const res = await apiFetch(`${API}/affectations/${deletingAffectation.id}`, {
+        method: 'DELETE',
+      })
+      setAffectations(prev => prev.filter(a => a.id !== deletingAffectation.id))
+      addToast(res.message || 'Affectation retirée.', 'success')
+      setDeletingAffectation(null)
+      apiFetch(`${API}/professeurs`).then(setProfesseurs).catch(() => {})
+    } catch (err) {
+      addToast(err.message || "Erreur lors du retrait de l'affectation", 'error')
+    } finally {
+      setDeletingAffectationLoading(false)
+    }
+  }
 
   // Salle CRUD handlers
   const handleSaveSalle = (savedSalle, isEdit) => {
@@ -2815,6 +2881,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
             { id: 'emploi',  label: 'Emploi du temps' },
             { id: 'groupes', label: 'Groupes' },
             { id: 'profs',   label: 'Formateurs' },
+            { id: 'affectations', label: 'Affectations' },
             { id: 'salles',  label: 'Salles' },
             { id: 'modules', label: 'Modules' },
             { id: 'filieres', label: 'Filières' },
@@ -2849,6 +2916,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
             {activeNav === 'emploi'  && 'Emploi du temps — ISTA NTIC 2'}
             {activeNav === 'groupes' && 'Gestion des Groupes'}
             {activeNav === 'profs'   && 'Gestion des Formateurs'}
+            {activeNav === 'affectations' && 'Affectations Groupe + Module'}
             {activeNav === 'salles'  && 'Salles et Locaux'}
             {activeNav === 'modules' && 'Gestion des Modules'}
             {activeNav === 'filieres' && 'Gestion des Filières'}
@@ -3534,7 +3602,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                     </span>
                   </div>
                   <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
-                    Corps professoral de l'établissement • Gestion des affectations et disponibilités
+                    Corps professoral de l'établissement • Disponibilités et salles préférées
                   </p>
                 </div>
 
@@ -3639,7 +3707,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                         <th style={{ padding: '14px 18px' }}>Nom Affiché (Emploi)</th>
                         <th style={{ padding: '14px 18px' }}>Matricule</th>
                         <th style={{ padding: '14px 18px' }}>Email</th>
-                        <th style={{ padding: '14px 18px' }}>Modules</th>
+                        <th style={{ padding: '14px 18px' }}>Modules affectés</th>
                         <th style={{ padding: '14px 18px', textAlign: 'center' }}>Statut</th>
                         <th style={{ padding: '14px 18px', textAlign: 'center' }}>Présence</th>
                         <th style={{ padding: '14px 18px', textAlign: 'center' }}>Salle préf. Matin</th>
@@ -3690,7 +3758,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                             </td>
                             <td style={{ padding: '14px 18px' }}>
                               {(p.modules || []).length === 0 ? (
-                                <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>
+                                <span style={{ color: '#94a3b8', fontSize: 11 }}>Aucun — voir Affectations</span>
                               ) : (
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                                   {(p.modules || []).slice(0, 3).map(m => (
@@ -3819,6 +3887,331 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                           </tr>
                         ))
                       )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── AFFECTATIONS VIEW ── */}
+          {activeNav === 'affectations' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {/* Header card */}
+              <div style={{
+                background: '#fff',
+                borderRadius: 12,
+                padding: '20px 24px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 16
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <h2 style={{ margin: 0, fontSize: 20, color: '#0f2d5e', fontWeight: 700 }}>
+                      Affectations Groupe + Module
+                    </h2>
+                    <span style={{
+                      background: '#eff6ff',
+                      color: '#1d4ed8',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      borderRadius: 20,
+                      border: '1px solid #bfdbfe'
+                    }}>
+                      {affectations.length} affectation{affectations.length > 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+                    Chaque couple Groupe + Module provient des modules cochés dans la filière du groupe.
+                  </p>
+                </div>
+                <div style={{
+                  fontSize: 12,
+                  color: '#64748b',
+                  textAlign: 'right',
+                  lineHeight: 1.6
+                }}>
+                  <strong style={{ color: '#0f2d5e' }}>{affectationRows.length}</strong> couple{affectationRows.length > 1 ? 's' : ''} groupe/module
+                  <br />
+                  <strong style={{ color: '#b45309' }}>
+                    {affectationRows.filter(r => r.affectations.length === 0).length}
+                  </strong>{' '}
+                  sans formateur
+                </div>
+              </div>
+
+              {/* Workflow hint */}
+              <div style={{
+                background: '#eff6ff',
+                border: '1px solid #bfdbfe',
+                borderRadius: 12,
+                padding: '14px 18px',
+                fontSize: 12,
+                color: '#1e3a8a',
+                lineHeight: 1.7,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                flexWrap: 'wrap'
+              }}>
+                <strong>Comment ça marche :</strong>
+                <span>1. cochez les modules dans</span>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ padding: '2px 10px', fontSize: 11 }}
+                  onClick={() => setActiveNav('filieres')}
+                >
+                  Filières
+                </button>
+                <span>2. renseignez « Heures / sem. » dans</span>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ padding: '2px 10px', fontSize: 11 }}
+                  onClick={() => setActiveNav('modules')}
+                >
+                  Modules
+                </button>
+                <span>3. affectez ici un formateur par couple. Sans formateur, les séances restent planifiées (sans formateur).</span>
+              </div>
+
+              {/* Filters toolbar */}
+              <div style={{
+                background: '#fff',
+                borderRadius: 12,
+                padding: '16px 20px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 14,
+                flexWrap: 'wrap'
+              }}>
+                <div style={{ flex: '1 1 260px', minWidth: 200 }}>
+                  <input
+                    type="text"
+                    placeholder="Rechercher (groupe, module, formateur...)"
+                    value={affectationSearch}
+                    onChange={e => setAffectationSearch(e.target.value)}
+                    style={{
+                      width: '100%',
+                      height: 38,
+                      padding: '0 12px',
+                      border: '1.5px solid #e2e8f0',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      outline: 'none',
+                      background: '#f8fafc'
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Filière :</label>
+                  <select
+                    value={affectationFiliereFilter}
+                    onChange={e => setAffectationFiliereFilter(e.target.value)}
+                    style={{
+                      height: 38,
+                      padding: '0 12px',
+                      border: '1.5px solid #e2e8f0',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      background: '#fff',
+                      outline: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="all">Toutes les filières</option>
+                    {filieres.map(f => (
+                      <option key={f.id} value={f.id}>{f.code}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Statut :</label>
+                  <select
+                    value={affectationStatutFilter}
+                    onChange={e => setAffectationStatutFilter(e.target.value)}
+                    style={{
+                      height: 38,
+                      padding: '0 12px',
+                      border: '1.5px solid #e2e8f0',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      background: '#fff',
+                      outline: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="all">Tous</option>
+                    <option value="affecte">Affectés</option>
+                    <option value="non_affecte">Sans formateur</option>
+                  </select>
+                </div>
+
+                {(affectationSearch || affectationFiliereFilter !== 'all' || affectationStatutFilter !== 'all') && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      setAffectationSearch('')
+                      setAffectationFiliereFilter('all')
+                      setAffectationStatutFilter('all')
+                    }}
+                    style={{ height: 38, padding: '0 12px', fontSize: 12 }}
+                  >
+                    Réinitialiser
+                  </button>
+                )}
+
+                <div style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b' }}>
+                  Affichage de <strong>{filteredAffectationRows.length}</strong> sur {affectationRows.length} couples
+                </div>
+              </div>
+
+              {/* Table Card */}
+              <div style={{
+                background: '#fff',
+                borderRadius: 12,
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0',
+                overflow: 'hidden'
+              }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569' }}>
+                        <th style={{ padding: '14px 18px' }}>Groupe</th>
+                        <th style={{ padding: '14px 18px' }}>Module</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>Heures / sem.</th>
+                        <th style={{ padding: '14px 18px' }}>Formateur(s)</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredAffectationRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
+                            <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>
+                              Aucun couple groupe/module à afficher
+                            </div>
+                            <div style={{ fontSize: 13, marginTop: 6 }}>
+                              Cochez des modules dans les filières pour faire apparaître les affectations.
+                            </div>
+                          </td>
+                        </tr>
+                      ) : filteredAffectationRows.map(row => (
+                        <tr key={row.key} style={{ borderBottom: '1px solid #eef2f7' }}>
+                          <td style={{ padding: '12px 18px' }}>
+                            <div style={{ fontWeight: 700, color: '#0f2d5e' }}>
+                              {formatGroupeDisplay(row.groupe.code)}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#64748b' }}>
+                              {row.filiere?.code || row.groupe.filiere_code || '—'}
+                            </div>
+                          </td>
+                          <td style={{ padding: '12px 18px' }}>
+                            <div style={{ color: '#334155' }}>
+                              <strong style={{ color: '#0f2d5e' }}>{row.module.code}</strong> — {row.module.intitule}
+                            </div>
+                            {row.horsFiliere && (
+                              <span style={{
+                                display: 'inline-block',
+                                marginTop: 3,
+                                background: '#fffbeb',
+                                color: '#b45309',
+                                border: '1px solid #fde68a',
+                                borderRadius: 4,
+                                padding: '1px 6px',
+                                fontSize: 10,
+                                fontWeight: 700
+                              }}>
+                                Module hors filière
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: '12px 18px', textAlign: 'center', fontWeight: 700, color: '#1d4ed8' }}>
+                            {row.module.heures_hebdomadaires != null
+                              ? `${row.module.heures_hebdomadaires} h`
+                              : '—'}
+                          </td>
+                          <td style={{ padding: '12px 18px' }}>
+                            {row.affectations.length === 0 ? (
+                              <span style={{
+                                background: '#fffbeb',
+                                color: '#b45309',
+                                border: '1px solid #fde68a',
+                                borderRadius: 20,
+                                padding: '3px 10px',
+                                fontSize: 11,
+                                fontWeight: 700
+                              }}>
+                                Non affecté
+                              </span>
+                            ) : (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                {row.affectations.map(a => (
+                                  <span
+                                    key={a.id}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 6,
+                                      background: '#f0fdf4',
+                                      color: '#15803d',
+                                      border: '1px solid #bbf7d0',
+                                      borderRadius: 20,
+                                      padding: '3px 6px 3px 10px',
+                                      fontSize: 11,
+                                      fontWeight: 600
+                                    }}
+                                  >
+                                    {a.professeur_nom}
+                                    <button
+                                      type="button"
+                                      title="Retirer cette affectation"
+                                      onClick={() => setDeletingAffectation(a)}
+                                      style={{
+                                        border: 'none',
+                                        background: '#dcfce7',
+                                        color: '#166534',
+                                        width: 16,
+                                        height: 16,
+                                        borderRadius: '50%',
+                                        cursor: 'pointer',
+                                        fontSize: 11,
+                                        lineHeight: '14px',
+                                        padding: 0
+                                      }}
+                                    >
+                                      ×
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '12px 18px', textAlign: 'right' }}>
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ padding: '5px 10px', fontSize: 12 }}
+                              onClick={() => setAffectationRow(row)}
+                            >
+                              + Affecter
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
@@ -4660,9 +5053,6 @@ export default function Dashboard({ role = 'admin', onLogout }) {
         <ProfesseurModal
           prof={editingProf}
           salles={salles}
-          modules={modules}
-          groupes={groupes}
-          filieres={filieres}
           onClose={() => {
             setProfModalOpen(false)
             setEditingProf(null)
@@ -4677,6 +5067,24 @@ export default function Dashboard({ role = 'admin', onLogout }) {
           loading={deletingProfLoading}
           onClose={() => setDeletingProf(null)}
           onConfirm={handleDeleteProfConfirm}
+        />
+      )}
+
+      {affectationRow && (
+        <AffectationModal
+          row={affectationRow}
+          professeurs={professeurs}
+          onClose={() => setAffectationRow(null)}
+          onSave={handleSaveAffectation}
+        />
+      )}
+
+      {deletingAffectation && (
+        <DeleteAffectationModal
+          affectation={deletingAffectation}
+          loading={deletingAffectationLoading}
+          onClose={() => setDeletingAffectation(null)}
+          onConfirm={handleDeleteAffectationConfirm}
         />
       )}
 
