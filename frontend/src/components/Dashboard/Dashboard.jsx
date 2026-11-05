@@ -301,19 +301,59 @@ function EditModal({ seance, unites, salles, creneaux, professeurs, onClose, onS
   const [statut, setStatut] = useState(seance.statut || 'brouillon')
   const [loading, setLoading] = useState(false)
 
-  // Filter modules relevant to this group/filiere
+  // Groupes de la séance et formateurs affectés à ces groupes.
+  const groupeIdsSeance = useMemo(
+    () => new Set((seance.groupes || []).map(g => g.groupe_id)),
+    [seance]
+  )
+
+  const profsPourGroupe = useMemo(() => {
+    const actifs = (professeurs || []).filter(p => p.actif !== false)
+    if (groupeIdsSeance.size === 0) return actifs
+    return actifs.filter(p =>
+      (p.affectations || []).some(a => groupeIdsSeance.has(a.groupe_id)) ||
+      (seance.professeurs || []).some(x => x.prof_id === p.id)
+    )
+  }, [professeurs, groupeIdsSeance, seance])
+
+  // Modules que le formateur choisi enseigne à ces groupes.
+  // Un formateur sans affectation (données historiques) n'impose pas de filtre.
+  const modulesDuProf = useMemo(() => {
+    if (!profId) return null
+    const prof = (professeurs || []).find(p => p.id === +profId)
+    if (!prof) return null
+    const modules = new Set(
+      (prof.affectations || [])
+        .filter(a => groupeIdsSeance.has(a.groupe_id))
+        .map(a => a.module_id)
+    )
+    return modules.size > 0 ? modules : null
+  }, [profId, professeurs, groupeIdsSeance])
+
+  // Filter modules relevant to this group/filiere, then to the chosen formateur.
   const relevantUnites = useMemo(() => {
     if (!unites || unites.length === 0) return []
     const gCode = seance.groupes?.[0]?.groupe_code
+    let match = unites
     if (gCode) {
-      const match = unites.filter(u => {
+      const filtered = unites.filter(u => {
         const codes = Array.isArray(u.groupes) ? u.groupes.map(g => g.code) : []
         return codes.includes(gCode) || u.filiere_code === seance.filiere_code
       })
-      if (match.length > 0) return match
+      if (filtered.length > 0) match = filtered
     }
-    return unites
-  }, [unites, seance])
+    if (modulesDuProf) {
+      match = match.filter(u => modulesDuProf.has(u.module_id))
+    }
+    return match
+  }, [unites, seance, modulesDuProf])
+
+  // Le module sélectionné doit rester dans la liste filtrée par le formateur.
+  useEffect(() => {
+    if (relevantUnites.length === 0) return
+    const stillValid = relevantUnites.some(u => String(u.id) === String(uniteId))
+    if (!stillValid) setUniteId(relevantUnites[0].id)
+  }, [relevantUnites, uniteId])
 
   const handleSave = async () => {
     setLoading(true)
@@ -358,6 +398,11 @@ function EditModal({ seance, unites, salles, creneaux, professeurs, onClose, onS
               </option>
             ))}
           </select>
+          {relevantUnites.length === 0 && (
+            <div style={{ fontSize: 11, color: '#b45309', marginTop: 6 }}>
+              Aucun module affecté à ce formateur pour ce groupe.
+            </div>
+          )}
         </div>
 
         <div className="modal-field">
@@ -382,10 +427,20 @@ function EditModal({ seance, unites, salles, creneaux, professeurs, onClose, onS
             onChange={setProfId}
             options={[
               { value: '', label: '— Aucun / Garder actuel —' },
-              ...professeurs.map(p => ({ value: p.id, label: p.nom_complet })),
+              ...profsPourGroupe.map(p => ({ value: p.id, label: p.nom_complet })),
             ]}
-            placeholder="Rechercher un formateur…"
+            placeholder={
+              profsPourGroupe.length === 0
+                ? 'Aucun formateur affecté à ce groupe'
+                : 'Rechercher un formateur…'
+            }
           />
+          {profsPourGroupe.length === 0 && (
+            <div style={{ fontSize: 11, color: '#b45309', marginTop: 6, lineHeight: 1.5 }}>
+              Aucun formateur n'est affecté à ce groupe. Ajoutez une affectation
+              dans l'onglet <strong>Affectations</strong>.
+            </div>
+          )}
         </div>
 
         <div className="modal-field">
@@ -459,20 +514,53 @@ function AddModal({ prefill, semaine, unites, salles, creneaux, professeurs, gro
     return groupes.find(g => g.id === +groupeId) || prefill?.groupe
   }, [groupes, groupeId, prefill])
 
-  // Filter unites for the chosen group
+  // Seuls les formateurs affectés à ce groupe sont proposés.
+  const profsPourGroupe = useMemo(() => {
+    const actifs = (professeurs || []).filter(p => p.actif !== false)
+    if (!selectedGroupe?.id) return actifs
+    return actifs.filter(p =>
+      (p.affectations || []).some(a => a.groupe_id === selectedGroupe.id)
+    )
+  }, [professeurs, selectedGroupe])
+
+  // Modules que ce formateur enseigne à ce groupe (via les affectations).
+  const modulesDuProf = useMemo(() => {
+    if (!profId || !selectedGroupe?.id) return null
+    const prof = (professeurs || []).find(p => p.id === +profId)
+    if (!prof) return new Set()
+    return new Set(
+      (prof.affectations || [])
+        .filter(a => a.groupe_id === selectedGroupe.id)
+        .map(a => a.module_id)
+    )
+  }, [profId, professeurs, selectedGroupe])
+
+  // Filter unites for the chosen group, then for the chosen formateur.
   const filteredUnites = useMemo(() => {
     if (!selectedGroupe?.code) return unites
     const gCode = selectedGroupe.code
     const relevant = unites.filter(u => {
       const codes = Array.isArray(u.groupes) ? u.groupes.map(g => g.code) : []
-      return codes.includes(gCode) || u.filiere_code === selectedGroupe.filiere_code
+      const correspondGroupe = codes.includes(gCode) ||
+        u.filiere_code === selectedGroupe.filiere_code
+      if (!correspondGroupe) return false
+      if (modulesDuProf) return modulesDuProf.has(u.module_id)
+      return true
     })
+    if (modulesDuProf) return relevant
     return relevant.length > 0 ? relevant : unites
-  }, [unites, selectedGroupe])
+  }, [unites, selectedGroupe, modulesDuProf])
+
+  // Changement de groupe : on repart d'un formateur et d'un module vierges.
+  useEffect(() => {
+    setProfId('')
+  }, [selectedGroupe?.id])
 
   useEffect(() => {
     if (filteredUnites.length > 0) {
       setUniteId(filteredUnites[0].id)
+    } else {
+      setUniteId('')
     }
   }, [filteredUnites])
 
@@ -536,27 +624,47 @@ function AddModal({ prefill, semaine, unites, salles, creneaux, professeurs, gro
         </div>
 
         <div className="modal-field">
-          <label>Module / Matière</label>
-          <select value={uniteId} onChange={e => setUniteId(e.target.value)}>
-            {filteredUnites.map(u => (
-              <option key={u.id} value={u.id}>
-                {u.module_intitule || u.module_nom} ({u.module_code})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="modal-field">
           <label>Formateur</label>
           <SearchableSelect
             value={profId}
             onChange={setProfId}
             options={[
               { value: '', label: '— Sélectionner un formateur —' },
-              ...professeurs.map(p => ({ value: p.id, label: p.nom_complet })),
+              ...profsPourGroupe.map(p => ({ value: p.id, label: p.nom_complet })),
             ]}
-            placeholder="Rechercher un formateur…"
+            placeholder={
+              profsPourGroupe.length === 0
+                ? 'Aucun formateur affecté à ce groupe'
+                : 'Rechercher un formateur…'
+            }
           />
+          {profsPourGroupe.length === 0 && (
+            <div style={{ fontSize: 11, color: '#b45309', marginTop: 6, lineHeight: 1.5 }}>
+              Aucun formateur n'est affecté à ce groupe. Ajoutez une affectation
+              dans l'onglet <strong>Affectations</strong>, ou créez la séance sans formateur.
+            </div>
+          )}
+        </div>
+
+        <div className="modal-field">
+          <label>Module / Matière</label>
+          <select
+            value={uniteId}
+            onChange={e => setUniteId(e.target.value)}
+            disabled={filteredUnites.length === 0}
+          >
+            {filteredUnites.map(u => (
+              <option key={u.id} value={u.id}>
+                {u.module_intitule || u.module_nom} ({u.module_code})
+              </option>
+            ))}
+          </select>
+          {filteredUnites.length === 0 && (
+            <div style={{ fontSize: 11, color: '#b45309', marginTop: 6, lineHeight: 1.5 }}>
+              Aucun module affecté à ce formateur pour ce groupe.
+              Vérifiez l'onglet <strong>Affectations</strong>.
+            </div>
+          )}
         </div>
 
         <div className="modal-field">
