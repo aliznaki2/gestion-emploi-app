@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, Fragment } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react'
 import './Dashboard.css'
 
 const API = 'http://localhost:3001/api'
@@ -58,7 +58,7 @@ const SECTIONS = [
   { id: 'ge_1',  order: 5, title: 'GESTION DES ENTREPRISES — 1ÈRE ANNÉE', short: 'GE 1ère Année' },
   { id: 'ge_2',  order: 6, title: 'GESTION DES ENTREPRISES — 2ÈME ANNÉE', short: 'GE 2ème Année' },
   { id: 'ge_3',  order: 7, title: 'GESTION DES ENTREPRISES — 3ÈME ANNÉE', short: 'GE 3ème Année' },
-  { id: 'tsm',   order: 8, title: 'TECHNICIEN SPÉCIALISÉ EN MULTIMÉDIA', short: 'TSM Multimédia' },
+  { id: 'tsm',   order: 8, title: 'Technicien Spécialisé en Météorologie', short: 'TSM Météorologie' },
   { id: 'autre', order: 9, title: 'AUTRES SECTIONS', short: 'Autres' },
 ]
 
@@ -100,10 +100,154 @@ const apiFetch = async (url, opts = {}) => {
   const r = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts })
   if (!r.ok) {
     let errMsg = 'Erreur serveur'
-    try { const e = await r.json(); errMsg = e.error || e.message || errMsg } catch {}
+    try {
+      const e = await r.json()
+      const details = Array.isArray(e.details) ? e.details.join(' ') : e.details
+      errMsg = e.error || e.message || e.detail || details || errMsg
+      if (details && !String(errMsg).includes(details)) errMsg = `${errMsg} ${details}`
+    } catch {}
     throw new Error(errMsg)
   }
   return r.json()
+}
+
+// ─── Recherche clavier dans un select ────────────────────────────────────────
+function SearchableSelect({
+  value,
+  onChange,
+  options = [],
+  placeholder = '— Sélectionner —',
+  required = false,
+  style,
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [highlight, setHighlight] = useState(0)
+  const boxRef = useRef(null)
+  const listRef = useRef(null)
+
+  const selected = options.find(o => String(o.value) === String(value))
+  const filtered = useMemo(() => {
+    const q = (query || '').trim().toLowerCase()
+    if (!q) return options
+    return options.filter(o => (o.label || '').toLowerCase().includes(q))
+  }, [options, query])
+
+  useEffect(() => {
+    const onDocMouseDown = (e) => {
+      if (boxRef.current && !boxRef.current.contains(e.target)) {
+        setOpen(false)
+        setQuery('')
+      }
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [])
+
+  useEffect(() => {
+    if (highlight > filtered.length - 1) setHighlight(Math.max(0, filtered.length - 1))
+  }, [filtered, highlight])
+
+  const choisir = (opt) => {
+    onChange(opt.value)
+    setQuery('')
+    setOpen(false)
+    setHighlight(0)
+  }
+
+  const onKeyDown = (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setOpen(true)
+      setHighlight(h => Math.min(h + 1, Math.max(0, filtered.length - 1)))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setOpen(true)
+      setHighlight(h => Math.max(h - 1, 0))
+    } else if (e.key === 'Enter') {
+      if (open && filtered[highlight]) {
+        e.preventDefault()
+        choisir(filtered[highlight])
+      }
+    } else if (e.key === 'Escape') {
+      setOpen(false)
+      setQuery('')
+    }
+  }
+
+  return (
+    <div ref={boxRef} style={{ position: 'relative', ...style }}>
+      <input
+        type="text"
+        value={open ? query : (selected?.label || '')}
+        placeholder={selected ? selected.label : placeholder}
+        onChange={e => { setQuery(e.target.value); setOpen(true); setHighlight(0) }}
+        onFocus={() => { setOpen(true); setQuery('') }}
+        onKeyDown={onKeyDown}
+        autoComplete="off"
+        style={{
+          width: '100%',
+          height: 38,
+          padding: '0 30px 0 12px',
+          border: '1.5px solid #e2e8f0',
+          borderRadius: 8,
+          fontSize: 13,
+          outline: 'none',
+          background: '#fff',
+          color: '#0f172a',
+        }}
+      />
+      <span
+        style={{
+          position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+          color: '#94a3b8', fontSize: 11, pointerEvents: 'none'
+        }}
+      >
+        ▼
+      </span>
+      {open && (
+        <div
+          ref={listRef}
+          style={{
+            position: 'absolute', zIndex: 60, left: 0, right: 0, marginTop: 4,
+            background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
+            boxShadow: '0 8px 24px rgba(15,23,42,0.12)', maxHeight: 240, overflowY: 'auto'
+          }}
+        >
+          {filtered.length === 0 ? (
+            <div style={{ padding: '10px 12px', fontSize: 12, color: '#94a3b8' }}>
+              Aucun résultat
+            </div>
+          ) : filtered.map((opt, idx) => (
+            <div
+              key={opt.value}
+              onMouseDown={e => { e.preventDefault(); choisir(opt) }}
+              onMouseEnter={() => setHighlight(idx)}
+              style={{
+                padding: '9px 12px',
+                fontSize: 13,
+                cursor: 'pointer',
+                background: idx === highlight ? '#eff6ff' : (String(opt.value) === String(value) ? '#f8fafc' : '#fff'),
+                color: idx === highlight ? '#1d4ed8' : '#0f172a',
+                borderBottom: idx < filtered.length - 1 ? '1px solid #f1f5f9' : 'none',
+              }}
+            >
+              {opt.label}
+            </div>
+          ))}
+        </div>
+      )}
+      {required && !value && (
+        <input
+          tabIndex={-1}
+          required
+          value=""
+          onChange={() => {}}
+          style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }}
+        />
+      )}
+    </div>
+  )
 }
 
 // Format Group display: DEVOWFS201 -> NTIC2-FS201, DEV101 -> NTIC2-DEV101, etc.
@@ -153,19 +297,63 @@ function EditModal({ seance, unites, salles, creneaux, professeurs, onClose, onS
   const [salleId, setSalleId] = useState(seance.salle_id || '')
   const [profId, setProfId] = useState(seance.professeurs?.[0]?.prof_id || '')
   const [mode, setMode] = useState(seance.mode || 'presentiel')
+  const [nature, setNature] = useState(seance.nature || 'bloc')
   const [statut, setStatut] = useState(seance.statut || 'brouillon')
   const [loading, setLoading] = useState(false)
 
-  // Filter modules relevant to this group/filiere
+  // Groupes de la séance et formateurs affectés à ces groupes.
+  const groupeIdsSeance = useMemo(
+    () => new Set((seance.groupes || []).map(g => g.groupe_id)),
+    [seance]
+  )
+
+  const profsPourGroupe = useMemo(() => {
+    const actifs = (professeurs || []).filter(p => p.actif !== false)
+    if (groupeIdsSeance.size === 0) return actifs
+    return actifs.filter(p =>
+      (p.affectations || []).some(a => groupeIdsSeance.has(a.groupe_id)) ||
+      (seance.professeurs || []).some(x => x.prof_id === p.id)
+    )
+  }, [professeurs, groupeIdsSeance, seance])
+
+  // Modules que le formateur choisi enseigne à ces groupes.
+  // Un formateur sans affectation (données historiques) n'impose pas de filtre.
+  const modulesDuProf = useMemo(() => {
+    if (!profId) return null
+    const prof = (professeurs || []).find(p => p.id === +profId)
+    if (!prof) return null
+    const modules = new Set(
+      (prof.affectations || [])
+        .filter(a => groupeIdsSeance.has(a.groupe_id))
+        .map(a => a.module_id)
+    )
+    return modules.size > 0 ? modules : null
+  }, [profId, professeurs, groupeIdsSeance])
+
+  // Filter modules relevant to this group/filiere, then to the chosen formateur.
   const relevantUnites = useMemo(() => {
     if (!unites || unites.length === 0) return []
     const gCode = seance.groupes?.[0]?.groupe_code
+    let match = unites
     if (gCode) {
-      const match = unites.filter(u => (u.groupes || '').includes(gCode) || u.filiere_code === seance.filiere_code)
-      if (match.length > 0) return match
+      const filtered = unites.filter(u => {
+        const codes = Array.isArray(u.groupes) ? u.groupes.map(g => g.code) : []
+        return codes.includes(gCode) || u.filiere_code === seance.filiere_code
+      })
+      if (filtered.length > 0) match = filtered
     }
-    return unites
-  }, [unites, seance])
+    if (modulesDuProf) {
+      match = match.filter(u => modulesDuProf.has(u.module_id))
+    }
+    return match
+  }, [unites, seance, modulesDuProf])
+
+  // Le module sélectionné doit rester dans la liste filtrée par le formateur.
+  useEffect(() => {
+    if (relevantUnites.length === 0) return
+    const stillValid = relevantUnites.some(u => String(u.id) === String(uniteId))
+    if (!stillValid) setUniteId(relevantUnites[0].id)
+  }, [relevantUnites, uniteId])
 
   const handleSave = async () => {
     setLoading(true)
@@ -178,6 +366,7 @@ function EditModal({ seance, unites, salles, creneaux, professeurs, onClose, onS
           salle_id: (mode === 'presentiel' && salleId) ? +salleId : null,
           professeur_id: profId ? +profId : null,
           mode,
+          nature,
           statut,
         })
       })
@@ -205,10 +394,15 @@ function EditModal({ seance, unites, salles, creneaux, professeurs, onClose, onS
           <select value={uniteId} onChange={e => setUniteId(e.target.value)}>
             {relevantUnites.map(u => (
               <option key={u.id} value={u.id}>
-                {u.module_nom} ({u.module_code})
+                {u.module_intitule || u.module_nom} ({u.module_code})
               </option>
             ))}
           </select>
+          {relevantUnites.length === 0 && (
+            <div style={{ fontSize: 11, color: '#b45309', marginTop: 6 }}>
+              Aucun module affecté à ce formateur pour ce groupe.
+            </div>
+          )}
         </div>
 
         <div className="modal-field">
@@ -228,12 +422,25 @@ function EditModal({ seance, unites, salles, creneaux, professeurs, onClose, onS
 
         <div className="modal-field">
           <label>Formateur</label>
-          <select value={profId} onChange={e => setProfId(e.target.value)}>
-            <option value="">— Aucun / Garder actuel —</option>
-            {professeurs.map(p => (
-              <option key={p.id} value={p.id}>{p.nom_complet}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={profId}
+            onChange={setProfId}
+            options={[
+              { value: '', label: '— Aucun / Garder actuel —' },
+              ...profsPourGroupe.map(p => ({ value: p.id, label: p.nom_complet })),
+            ]}
+            placeholder={
+              profsPourGroupe.length === 0
+                ? 'Aucun formateur affecté à ce groupe'
+                : 'Rechercher un formateur…'
+            }
+          />
+          {profsPourGroupe.length === 0 && (
+            <div style={{ fontSize: 11, color: '#b45309', marginTop: 6, lineHeight: 1.5 }}>
+              Aucun formateur n'est affecté à ce groupe. Ajoutez une affectation
+              dans l'onglet <strong>Affectations</strong>.
+            </div>
+          )}
         </div>
 
         <div className="modal-field">
@@ -255,6 +462,15 @@ function EditModal({ seance, unites, salles, creneaux, professeurs, onClose, onS
             </select>
           </div>
         )}
+
+        <div className="modal-field">
+          <label>Type de séance</label>
+          <select value={nature} onChange={e => setNature(e.target.value)}>
+            <option value="bloc">Cours (bloc de 5 h)</option>
+            <option value="simple">Cours (séance de 2,5 h)</option>
+            <option value="examen">EFM — Examen de fin de module</option>
+          </select>
+        </div>
 
         <div className="modal-field">
           <label>Statut</label>
@@ -298,17 +514,53 @@ function AddModal({ prefill, semaine, unites, salles, creneaux, professeurs, gro
     return groupes.find(g => g.id === +groupeId) || prefill?.groupe
   }, [groupes, groupeId, prefill])
 
-  // Filter unites for the chosen group
+  // Seuls les formateurs affectés à ce groupe sont proposés.
+  const profsPourGroupe = useMemo(() => {
+    const actifs = (professeurs || []).filter(p => p.actif !== false)
+    if (!selectedGroupe?.id) return actifs
+    return actifs.filter(p =>
+      (p.affectations || []).some(a => a.groupe_id === selectedGroupe.id)
+    )
+  }, [professeurs, selectedGroupe])
+
+  // Modules que ce formateur enseigne à ce groupe (via les affectations).
+  const modulesDuProf = useMemo(() => {
+    if (!profId || !selectedGroupe?.id) return null
+    const prof = (professeurs || []).find(p => p.id === +profId)
+    if (!prof) return new Set()
+    return new Set(
+      (prof.affectations || [])
+        .filter(a => a.groupe_id === selectedGroupe.id)
+        .map(a => a.module_id)
+    )
+  }, [profId, professeurs, selectedGroupe])
+
+  // Filter unites for the chosen group, then for the chosen formateur.
   const filteredUnites = useMemo(() => {
     if (!selectedGroupe?.code) return unites
     const gCode = selectedGroupe.code
-    const relevant = unites.filter(u => (u.groupes || '').includes(gCode) || u.filiere_code === selectedGroupe.filiere_code)
+    const relevant = unites.filter(u => {
+      const codes = Array.isArray(u.groupes) ? u.groupes.map(g => g.code) : []
+      const correspondGroupe = codes.includes(gCode) ||
+        u.filiere_code === selectedGroupe.filiere_code
+      if (!correspondGroupe) return false
+      if (modulesDuProf) return modulesDuProf.has(u.module_id)
+      return true
+    })
+    if (modulesDuProf) return relevant
     return relevant.length > 0 ? relevant : unites
-  }, [unites, selectedGroupe])
+  }, [unites, selectedGroupe, modulesDuProf])
+
+  // Changement de groupe : on repart d'un formateur et d'un module vierges.
+  useEffect(() => {
+    setProfId('')
+  }, [selectedGroupe?.id])
 
   useEffect(() => {
     if (filteredUnites.length > 0) {
       setUniteId(filteredUnites[0].id)
+    } else {
+      setUniteId('')
     }
   }, [filteredUnites])
 
@@ -372,24 +624,47 @@ function AddModal({ prefill, semaine, unites, salles, creneaux, professeurs, gro
         </div>
 
         <div className="modal-field">
-          <label>Module / Matière</label>
-          <select value={uniteId} onChange={e => setUniteId(e.target.value)}>
-            {filteredUnites.map(u => (
-              <option key={u.id} value={u.id}>
-                {u.module_nom} ({u.module_code})
-              </option>
-            ))}
-          </select>
+          <label>Formateur</label>
+          <SearchableSelect
+            value={profId}
+            onChange={setProfId}
+            options={[
+              { value: '', label: '— Sélectionner un formateur —' },
+              ...profsPourGroupe.map(p => ({ value: p.id, label: p.nom_complet })),
+            ]}
+            placeholder={
+              profsPourGroupe.length === 0
+                ? 'Aucun formateur affecté à ce groupe'
+                : 'Rechercher un formateur…'
+            }
+          />
+          {profsPourGroupe.length === 0 && (
+            <div style={{ fontSize: 11, color: '#b45309', marginTop: 6, lineHeight: 1.5 }}>
+              Aucun formateur n'est affecté à ce groupe. Ajoutez une affectation
+              dans l'onglet <strong>Affectations</strong>, ou créez la séance sans formateur.
+            </div>
+          )}
         </div>
 
         <div className="modal-field">
-          <label>Formateur</label>
-          <select value={profId} onChange={e => setProfId(e.target.value)}>
-            <option value="">— Sélectionner un formateur —</option>
-            {professeurs.map(p => (
-              <option key={p.id} value={p.id}>{p.nom_complet}</option>
+          <label>Module / Matière</label>
+          <select
+            value={uniteId}
+            onChange={e => setUniteId(e.target.value)}
+            disabled={filteredUnites.length === 0}
+          >
+            {filteredUnites.map(u => (
+              <option key={u.id} value={u.id}>
+                {u.module_intitule || u.module_nom} ({u.module_code})
+              </option>
             ))}
           </select>
+          {filteredUnites.length === 0 && (
+            <div style={{ fontSize: 11, color: '#b45309', marginTop: 6, lineHeight: 1.5 }}>
+              Aucun module affecté à ce formateur pour ce groupe.
+              Vérifiez l'onglet <strong>Affectations</strong>.
+            </div>
+          )}
         </div>
 
         <div className="modal-field">
@@ -522,7 +797,7 @@ function GroupeModal({ groupe, filieres, onClose, onSave }) {
   const [anneeEtude, setAnneeEtude] = useState(groupe?.annee_etude || 1)
   const [effectif, setEffectif] = useState(groupe?.effectif ?? 25)
   const [regime, setRegime] = useState(groupe?.regime || 'CDJ')
-  const [modeFormation, setModeFormation] = useState(groupe?.mode_formation || 'Résidentiel')
+  const [modeFormation, setModeFormation] = useState(groupe?.mode_formation || 'presentiel')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -655,8 +930,9 @@ function GroupeModal({ groupe, filieres, onClose, onSave }) {
             <div className="modal-field">
               <label>Mode de formation</label>
               <select value={modeFormation} onChange={e => setModeFormation(e.target.value)}>
-                <option value="Résidentiel">Résidentiel</option>
-                <option value="Alterné">Alterné</option>
+                <option value="presentiel">Présentiel</option>
+                <option value="alternance">Alternance</option>
+                <option value="hybride">Hybride</option>
               </select>
             </div>
           </div>
@@ -704,7 +980,7 @@ function DeleteGroupeModal({ groupe, onClose, onConfirm, loading }) {
 }
 
 // ─── Modal Créer / Modifier Formateur ─────────────────────────────────────────
-function ProfesseurModal({ prof, onClose, onSave }) {
+function ProfesseurModal({ prof, salles = [], onClose, onSave }) {
   const isEdit = Boolean(prof?.id)
   const [nomComplet, setNomComplet] = useState(prof?.nom_complet || '')
   const [matricule, setMatricule] = useState(prof?.matricule || '')
@@ -712,6 +988,8 @@ function ProfesseurModal({ prof, onClose, onSave }) {
   const [statut, setStatut] = useState(prof?.statut || 'permanent')
   const [tauxPresence, setTauxPresence] = useState(prof?.taux_presence ?? 100)
   const [heuresMax, setHeuresMax] = useState(prof?.heures_max_semaine || '')
+  const [sallePrefereeMatin, setSallePrefereeMatin] = useState(prof?.salle_preferee_matin_id || '')
+  const [sallePrefereeApm, setSallePrefereeApm] = useState(prof?.salle_preferee_apm_id || '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -732,6 +1010,8 @@ function ProfesseurModal({ prof, onClose, onSave }) {
         statut,
         taux_presence: +tauxPresence,
         heures_max_semaine: heuresMax ? +heuresMax : null,
+        salle_preferee_matin_id: sallePrefereeMatin ? +sallePrefereeMatin : null,
+        salle_preferee_apm_id: sallePrefereeApm ? +sallePrefereeApm : null,
       }
 
       let res
@@ -756,7 +1036,7 @@ function ProfesseurModal({ prof, onClose, onSave }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <h3 style={{ margin: 0, fontSize: 18, color: '#0f2d5e' }}>
             {isEdit ? `Modifier le Formateur` : 'Ajouter un Formateur'}
@@ -842,6 +1122,58 @@ function ProfesseurModal({ prof, onClose, onSave }) {
             </div>
           </div>
 
+          <div style={{
+            marginTop: 4,
+            marginBottom: 16,
+            padding: '10px 12px',
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: 8,
+            fontSize: 12,
+            color: '#475569'
+          }}>
+            Salles préférées : le planificateur privilégie la salle du matin (AM) pour les créneaux 1 et 2,
+            et la salle de l'après-midi (PM) pour les créneaux 3 et 4.
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div className="modal-field">
+              <label>Salle préférée — Matin (AM)</label>
+              <select value={sallePrefereeMatin} onChange={e => setSallePrefereeMatin(e.target.value)}>
+                <option value="">— Aucune préférence —</option>
+                {salles.map(s => (
+                  <option key={s.id} value={s.id}>{s.nom} ({s.type_code})</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="modal-field">
+              <label>Salle préférée — Après-midi (PM)</label>
+              <select value={sallePrefereeApm} onChange={e => setSallePrefereeApm(e.target.value)}>
+                <option value="">— Aucune préférence —</option>
+                {salles.map(s => (
+                  <option key={s.id} value={s.id}>{s.nom} ({s.type_code})</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div style={{
+            marginTop: 4,
+            padding: '12px 14px',
+            background: '#eff6ff',
+            border: '1px solid #bfdbfe',
+            borderRadius: 8,
+            fontSize: 12,
+            color: '#1e3a8a',
+            lineHeight: 1.55
+          }}>
+            <strong>Modules et groupes</strong><br />
+            Les modules enseignés et les groupes associés se gèrent désormais dans
+            l'onglet <strong>Affectations</strong> (Groupe + Module → Formateur).
+            La génération de l'emploi du temps s'appuie sur ces affectations.
+          </div>
+
           <div className="modal-actions" style={{ marginTop: 24 }}>
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
               Annuler
@@ -884,12 +1216,171 @@ function DeleteProfesseurModal({ prof, onClose, onConfirm, loading }) {
   )
 }
 
+// ─── Modal Affecter un formateur à un couple Groupe + Module ─────────────────
+function AffectationModal({ row, professeurs = [], onClose, onSave }) {
+  const [profId, setProfId] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  if (!row) return null
+
+  const dejaAffectes = new Set((row.affectations || []).map(a => a.professeur_id))
+  const candidats = professeurs.filter(p => p.actif !== false && !dejaAffectes.has(p.id))
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault()
+    if (!profId) {
+      setError('Veuillez sélectionner un formateur.')
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      const res = await apiFetch(`${API}/affectations`, {
+        method: 'POST',
+        body: JSON.stringify({
+          professeur_id: +profId,
+          module_id: row.module.id,
+          groupe_id: row.groupe.id,
+        }),
+      })
+      onSave(res)
+    } catch (err) {
+      setError(err.message || 'Une erreur est survenue')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 18, color: '#0f2d5e' }}>
+            Affecter un formateur
+          </h3>
+          <button
+            onClick={onClose}
+            type="button"
+            style={{ fontSize: 20, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}
+          >
+            ×
+          </button>
+        </div>
+
+        {error && (
+          <div className="alert-banner error" style={{ marginBottom: 16 }}>
+            <span>{error}</span>
+          </div>
+        )}
+
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10,
+          background: '#f8fafc', border: '1px solid #e2e8f0',
+          borderRadius: 8, padding: '12px 14px', marginBottom: 18
+        }}>
+          <div>
+            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Groupe</div>
+            <div style={{ fontSize: 14, color: '#0f2d5e', fontWeight: 700 }}>{row.groupe.code}</div>
+            <div style={{ fontSize: 11, color: '#64748b' }}>{row.filiere?.code || '—'}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Module</div>
+            <div style={{ fontSize: 14, color: '#0f2d5e', fontWeight: 700 }}>{row.module.code}</div>
+            <div style={{ fontSize: 11, color: '#64748b' }}>{row.module.intitule}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Heures / sem.</div>
+            <div style={{ fontSize: 14, color: '#1d4ed8', fontWeight: 700 }}>
+              {row.module.heures_hebdomadaires != null ? `${row.module.heures_hebdomadaires} h` : '—'}
+            </div>
+          </div>
+          {row.horsFiliere && (
+            <div style={{ fontSize: 11, color: '#b45309', fontWeight: 600, alignSelf: 'center' }}>
+              Module hors filière
+            </div>
+          )}
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div className="modal-field">
+            <label>Formateur *</label>
+            <select
+              value={profId}
+              onChange={e => setProfId(e.target.value)}
+              required
+              autoFocus
+            >
+              <option value="">— Sélectionner un formateur —</option>
+              {candidats.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.nom_complet}{p.matricule ? ` (${p.matricule})` : ''}
+                </option>
+              ))}
+            </select>
+            {candidats.length === 0 && (
+              <div style={{ fontSize: 11, color: '#b45309', marginTop: 6 }}>
+                Tous les formateurs actifs sont déjà affectés à ce couple groupe + module.
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 6, lineHeight: 1.5 }}>
+              Le formateur enseignera ce module à ce groupe. Sans affectation, les
+              séances de ce module seront générées sans formateur.
+            </div>
+          </div>
+
+          <div className="modal-actions" style={{ marginTop: 24 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
+              Annuler
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={loading || candidats.length === 0}>
+              {loading ? 'Affectation…' : 'Affecter'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal Confirmation Suppression Affectation ──────────────────────────────
+function DeleteAffectationModal({ affectation, onClose, onConfirm, loading }) {
+  if (!affectation) return null
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
+        <h3 style={{ margin: 0, fontSize: 18, color: '#dc2626' }}>
+          Retirer l'affectation
+        </h3>
+        <p style={{ margin: '16px 0 8px', fontSize: 14, color: '#334155', lineHeight: 1.5 }}>
+          Retirer <strong>{affectation.professeur_nom}</strong> du module{' '}
+          <strong>{affectation.module_code}</strong> pour le groupe{' '}
+          <strong>{affectation.groupe_code}</strong> ?
+        </p>
+        <p style={{ margin: '0 0 20px', fontSize: 12, color: '#64748b', background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', lineHeight: 1.4 }}>
+          Les séances de ce module pour ce groupe seront ensuite générées sans formateur,
+          sauf si un autre formateur est affecté.
+        </p>
+        <div className="modal-actions">
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
+            Annuler
+          </button>
+          <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={loading}>
+            {loading ? 'Suppression…' : 'Oui, retirer'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Modal Créer / Modifier Salle ─────────────────────────────────────────────
 function SalleModal({ salle, typesSalles, onClose, onSave }) {
   const isEdit = Boolean(salle?.id)
   const [nom, setNom] = useState(salle?.nom || '')
   const [typeSalleId, setTypeSalleId] = useState(salle?.type_salle_id || (typesSalles?.[0]?.id || ''))
   const [capacite, setCapacite] = useState(salle?.capacite ?? 30)
+  const [actif, setActif] = useState(salle?.actif ?? true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -917,6 +1408,7 @@ function SalleModal({ salle, typesSalles, onClose, onSave }) {
         nom: nom.trim().toUpperCase(),
         type_salle_id: +typeSalleId,
         capacite: +capacite,
+        actif,
       }
 
       let res
@@ -996,6 +1488,16 @@ function SalleModal({ salle, typesSalles, onClose, onSave }) {
             />
           </div>
 
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#334155', marginBottom: 8 }}>
+            <input
+              type="checkbox"
+              checked={actif}
+              onChange={e => setActif(e.target.checked)}
+              style={{ width: 16, height: 16, cursor: 'pointer' }}
+            />
+            Salle active (disponible pour la planification)
+          </label>
+
           <div className="modal-actions" style={{ marginTop: 24 }}>
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
               Annuler
@@ -1038,6 +1540,668 @@ function DeleteSalleModal({ salle, onClose, onConfirm, loading }) {
   )
 }
 
+// ─── Modal Créer / Modifier Module ───────────────────────────────────────────
+function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
+  const isEdit = Boolean(module?.id)
+  const [code, setCode] = useState(module?.code || '')
+  const [intitule, setIntitule] = useState(module?.intitule || '')
+  const [typeModule, setTypeModule] = useState(module?.type_module || 'technique')
+  const [regional, setRegional] = useState(module?.regional ?? false)
+  const [efmFinModule, setEfmFinModule] = useState(module?.efm_fin_module ?? true)
+  const [dateEfm, setDateEfm] = useState(module?.date_efm || '')
+  const [seances25, setSeances25] = useState(module?.seances_2_5_autorisees ?? true)
+  const [heuresHebdo, setHeuresHebdo] = useState(
+    module?.heures_hebdomadaires != null ? String(module.heures_hebdomadaires) : '5'
+  )
+  const [typesCompatibles, setTypesCompatibles] = useState(
+    module?.types_salles_ids || module?.types_salles_compatibles || []
+  )
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const toggleType = (id) => {
+    setTypesCompatibles(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault()
+    if (!code.trim()) {
+      setError('Veuillez saisir le code du module (ex: M101, EGTS101)')
+      return
+    }
+    if (!intitule.trim()) {
+      setError("Veuillez saisir l'intitulé du module")
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      const payload = {
+        code: code.trim().toUpperCase(),
+        intitule: intitule.trim(),
+        type_module: typeModule,
+        regional,
+        efm_fin_module: efmFinModule,
+        date_efm: dateEfm || null,
+        seances_2_5_autorisees: seances25,
+        heures_hebdomadaires: heuresHebdo === '' ? 0 : +heuresHebdo,
+        types_salles_compatibles: typesCompatibles.map(Number),
+      }
+      const res = isEdit
+        ? await apiFetch(`${API}/modules/${module.id}`, { method: 'PUT', body: JSON.stringify(payload) })
+        : await apiFetch(`${API}/modules`, { method: 'POST', body: JSON.stringify(payload) })
+      onSave(res, isEdit)
+    } catch (err) {
+      setError(err.message || 'Une erreur est survenue')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 18, color: '#0f2d5e' }}>
+            {isEdit ? `Modifier le module ${module.code}` : 'Ajouter un Module'}
+          </h3>
+          <button onClick={onClose} type="button"
+            style={{ fontSize: 20, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}>
+            ×
+          </button>
+        </div>
+
+        {error && <div className="alert-banner error" style={{ marginBottom: 16 }}><span>{error}</span></div>}
+
+        <form onSubmit={handleSubmit}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div className="modal-field">
+              <label>Code Module *</label>
+              <input type="text" placeholder="Ex: M101" value={code}
+                onChange={e => setCode(e.target.value.toUpperCase())} required autoFocus />
+            </div>
+            <div className="modal-field">
+              <label>Type de module</label>
+              <select value={typeModule} onChange={e => setTypeModule(e.target.value)}>
+                <option value="technique">Technique (Métier)</option>
+                <option value="general">Général (Soft Skills / Langues)</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="modal-field">
+            <label>Intitulé du module *</label>
+            <input type="text" placeholder="Ex: Développement web" value={intitule}
+              onChange={e => setIntitule(e.target.value)} required />
+          </div>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#334155', marginBottom: 4 }}>
+            <input type="checkbox" checked={regional} onChange={e => setRegional(e.target.checked)}
+              style={{ width: 16, height: 16, cursor: 'pointer' }} />
+            Épreuve régionale (EFM)
+          </label>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#334155', marginBottom: 4 }}>
+            <input type="checkbox" checked={efmFinModule} onChange={e => setEfmFinModule(e.target.checked)}
+              style={{ width: 16, height: 16, cursor: 'pointer' }} />
+            Marquer la dernière séance comme EFM
+          </label>
+          <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, lineHeight: 1.5 }}>
+            La dernière séance du module sera affichée « EFM » dans l'emploi du temps
+            pour que les stagiaires la repèrent.
+          </div>
+
+          <div className="modal-field">
+            <label>Date de l'EFM (optionnel)</label>
+            <input
+              type="date"
+              value={dateEfm}
+              disabled={!efmFinModule}
+              onChange={e => setDateEfm(e.target.value)}
+            />
+          </div>
+          <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, lineHeight: 1.5 }}>
+            Si une date est fixée, le moteur répartit les heures restantes pour
+            terminer le module dans cette semaine et place l'EFM ce jour-là.
+          </div>
+
+          <label style={{
+            display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
+            color: '#334155', marginBottom: 4, cursor: 'pointer'
+          }}>
+            <input
+              type="checkbox"
+              checked={seances25}
+              onChange={e => setSeances25(e.target.checked)}
+              style={{ width: 16, height: 16, cursor: 'pointer' }}
+            />
+            Autoriser les séances de 2,5 h
+          </label>
+          <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, lineHeight: 1.5 }}>
+            Activé par défaut : le moteur peut générer des séances isolées de 2,5 h.
+            Décochez cette case pour planifier ce module uniquement en blocs de 5 h.
+          </div>
+
+          <div className="modal-field">
+            <label>Heures par semaine (par groupe) *</label>
+            <input
+              type="number"
+              min="0"
+              step="2.5"
+              placeholder="Ex: 5"
+              value={heuresHebdo}
+              onChange={e => setHeuresHebdo(e.target.value)}
+              required
+            />
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, lineHeight: 1.5 }}>
+              Volume horaire planifié chaque semaine pour ce module, pour chaque groupe
+              qui l'étudie. Les séances sont arrondies à 2,5 h (ou à 5 h si les séances
+              de 2,5 h sont désactivées).
+            </div>
+          </div>
+
+          <div className="modal-field">
+            <label>Types de salles compatibles</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, padding: '8px 0' }}>
+              {typesSalles.map(t => (
+                <label key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#334155' }}>
+                  <input type="checkbox" checked={typesCompatibles.includes(t.id)}
+                    onChange={() => toggleType(t.id)} style={{ width: 15, height: 15, cursor: 'pointer' }} />
+                  {t.libelle} ({t.code})
+                </label>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: '#64748b' }}>
+              Aucune sélection = toutes les salles physiques sont autorisées.
+            </div>
+          </div>
+
+          <div className="modal-actions" style={{ marginTop: 24 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>Annuler</button>
+            <button type="submit" className="btn btn-primary" disabled={loading}>
+              {loading ? 'Enregistrement…' : (isEdit ? 'Enregistrer les modifications' : 'Créer le module')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal Confirmation Suppression Module ──────────────────────────────────
+function DeleteModuleModal({ module, onClose, onConfirm, loading }) {
+  if (!module) return null
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
+        <h3 style={{ margin: 0, fontSize: 18, color: '#dc2626' }}>Confirmer la suppression</h3>
+        <p style={{ margin: '16px 0 8px', fontSize: 14, color: '#334155', lineHeight: 1.5 }}>
+          Êtes-vous sûr de vouloir supprimer le module <strong>{module.code}</strong> — {module.intitule} ?
+        </p>
+        <p style={{ margin: '0 0 20px', fontSize: 12, color: '#64748b', background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', lineHeight: 1.4 }}>
+          Un module utilisé par des unités d'enseignement ne peut pas être supprimé.
+        </p>
+        <div className="modal-actions">
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>Annuler</button>
+          <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={loading}>
+            {loading ? 'Suppression…' : 'Oui, supprimer'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal Créer / Modifier Filière ──────────────────────────────────────────
+function FiliereModal({ filiere, secteurs = [], modules = [], onClose, onSave }) {
+  const isEdit = Boolean(filiere?.id)
+  const [code, setCode] = useState(filiere?.code || '')
+  const [intitule, setIntitule] = useState(filiere?.intitule || '')
+  const [secteurId, setSecteurId] = useState(
+    filiere?.secteur_id != null
+      ? String(filiere.secteur_id)
+      : (secteurs?.[0]?.id ? String(secteurs[0].id) : '')
+  )
+  const [nouveauSecteur, setNouveauSecteur] = useState('')
+  const [niveau, setNiveau] = useState(filiere?.niveau || 'TS')
+  const [moduleIds, setModuleIds] = useState(
+    Array.isArray(filiere?.module_ids)
+      ? filiere.module_ids
+      : (filiere?.modules || []).map(m => m.id)
+  )
+  const [moduleSearch, setModuleSearch] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!secteurId && !nouveauSecteur.trim() && secteurs.length > 0) {
+      setSecteurId(String(secteurs[0].id))
+    }
+  }, [secteurs, secteurId, nouveauSecteur])
+
+  const secteurManquant = filiere?.secteur_id != null &&
+    !secteurs.some(s => String(s.id) === String(filiere.secteur_id))
+
+  const modulesFiltres = modules.filter(m => {
+    const q = moduleSearch.trim().toLowerCase()
+    if (!q) return true
+    return (m.code || '').toLowerCase().includes(q) ||
+      (m.intitule || '').toLowerCase().includes(q)
+  })
+
+  const toggleModule = (id) => {
+    setModuleIds(prev => prev.includes(id)
+      ? prev.filter(x => x !== id)
+      : [...prev, id])
+  }
+
+  const handleSecteurChange = (value) => {
+    setSecteurId(value)
+    setNouveauSecteur('')
+  }
+
+  const handleNouveauSecteurChange = (value) => {
+    setNouveauSecteur(value)
+    if (value.trim()) setSecteurId('')
+  }
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault()
+    if (!code.trim() || !intitule.trim()) {
+      setError('Le code et l\'intitulé de la filière sont obligatoires')
+      return
+    }
+    if (!secteurId && !nouveauSecteur.trim()) {
+      setError('Veuillez sélectionner un secteur ou saisir un nouveau secteur')
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      const payload = {
+        code: code.trim().toUpperCase(),
+        intitule: intitule.trim(),
+        niveau: niveau.trim(),
+        module_ids: moduleIds,
+      }
+      if (nouveauSecteur.trim()) {
+        payload.secteur_intitule = nouveauSecteur.trim()
+      } else {
+        payload.secteur_id = +secteurId
+      }
+      const res = isEdit
+        ? await apiFetch(`${API}/filieres/${filiere.id}`, { method: 'PUT', body: JSON.stringify(payload) })
+        : await apiFetch(`${API}/filieres`, { method: 'POST', body: JSON.stringify(payload) })
+      onSave(res, isEdit)
+    } catch (err) {
+      setError(err.message || 'Une erreur est survenue')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 18, color: '#0f2d5e' }}>
+            {isEdit ? `Modifier la filière ${filiere.code}` : 'Ajouter une Filière'}
+          </h3>
+          <button onClick={onClose} type="button"
+            style={{ fontSize: 20, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}>
+            ×
+          </button>
+        </div>
+
+        {error && <div className="alert-banner error" style={{ marginBottom: 16 }}><span>{error}</span></div>}
+
+        <form onSubmit={handleSubmit}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div className="modal-field">
+              <label>Code Filière *</label>
+              <input type="text" placeholder="Ex: DIA_DEV_TS" value={code}
+                onChange={e => setCode(e.target.value.toUpperCase())} required autoFocus />
+            </div>
+            <div className="modal-field">
+              <label>Niveau</label>
+              <input type="text" placeholder="Ex: TS" value={niveau}
+                onChange={e => setNiveau(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="modal-field">
+            <label>Intitulé *</label>
+            <input type="text" placeholder="Ex: Développement Digital" value={intitule}
+              onChange={e => setIntitule(e.target.value)} required />
+          </div>
+
+          <div className="modal-field">
+            <label>Secteur *</label>
+            <select value={secteurId} onChange={e => handleSecteurChange(e.target.value)}>
+              <option value="">— Sélectionner un secteur —</option>
+              {secteurs.map(s => (
+                <option key={s.id} value={s.id}>{s.intitule} ({s.code})</option>
+              ))}
+              {secteurManquant && (
+                <option value={String(filiere.secteur_id)}>
+                  {filiere.secteur_nom} ({filiere.secteur_code})
+                </option>
+              )}
+            </select>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0 6px' }}>
+              <span style={{ fontSize: 12, color: '#64748b' }}>ou créer un nouveau secteur :</span>
+            </div>
+            <input
+              type="text"
+              placeholder="Ex: NTIC, Génie Mécanique…"
+              value={nouveauSecteur}
+              onChange={e => handleNouveauSecteurChange(e.target.value)}
+            />
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, lineHeight: 1.4 }}>
+              Si ce champ est rempli, un nouveau secteur sera créé avec un code généré automatiquement.
+            </div>
+          </div>
+
+          <div className="modal-field">
+            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>Modules enseignés</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#1d4ed8' }}>
+                {moduleIds.length} sélectionné{moduleIds.length > 1 ? 's' : ''}
+              </span>
+            </label>
+            <input
+              type="text"
+              placeholder="Rechercher un module (code ou intitulé)…"
+              value={moduleSearch}
+              onChange={e => setModuleSearch(e.target.value)}
+              style={{ marginBottom: 8 }}
+            />
+            <div style={{
+              maxHeight: 200, overflowY: 'auto', border: '1px solid #e2e8f0',
+              borderRadius: 8, background: '#f8fafc', padding: '6px 8px'
+            }}>
+              {modulesFiltres.length === 0 ? (
+                <div style={{ padding: 12, fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
+                  Aucun module trouvé
+                </div>
+              ) : modulesFiltres.map(m => (
+                <label key={m.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
+                  color: '#334155', padding: '5px 4px', cursor: 'pointer',
+                  borderBottom: '1px solid #eef2f7'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={moduleIds.includes(m.id)}
+                    onChange={() => toggleModule(m.id)}
+                    style={{ width: 15, height: 15, cursor: 'pointer' }}
+                  />
+                  <span>
+                    <strong style={{ color: '#0f2d5e' }}>{m.code}</strong> — {m.intitule}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ padding: '4px 10px', fontSize: 11 }}
+                onClick={() => setModuleIds(modulesFiltres.map(m => m.id))}
+              >
+                Tout cocher
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ padding: '4px 10px', fontSize: 11 }}
+                onClick={() => setModuleIds([])}
+              >
+                Tout décocher
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+              Cochez les modules dispensés dans cette filière.
+            </div>
+          </div>
+
+          <div className="modal-actions" style={{ marginTop: 24 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>Annuler</button>
+            <button type="submit" className="btn btn-primary" disabled={loading}>
+              {loading ? 'Enregistrement…' : (isEdit ? 'Enregistrer les modifications' : 'Créer la filière')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal Confirmation Suppression Filière ─────────────────────────────────
+function DeleteFiliereModal({ filiere, onClose, onConfirm, loading }) {
+  if (!filiere) return null
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
+        <h3 style={{ margin: 0, fontSize: 18, color: '#dc2626' }}>Confirmer la suppression</h3>
+        <p style={{ margin: '16px 0 8px', fontSize: 14, color: '#334155', lineHeight: 1.5 }}>
+          Êtes-vous sûr de vouloir supprimer la filière <strong>{filiere.code}</strong> — {filiere.intitule} ?
+        </p>
+        <p style={{ margin: '0 0 20px', fontSize: 12, color: '#64748b', background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', lineHeight: 1.4 }}>
+          Une filière contenant des groupes ne peut pas être supprimée.
+        </p>
+        <div className="modal-actions">
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>Annuler</button>
+          <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={loading}>
+            {loading ? 'Suppression…' : 'Oui, supprimer'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal Créer / Modifier Indisponibilité ──────────────────────────────────
+function IndisponibiliteModal({ indispo, groupes, professeurs, semaines, onClose, onSave }) {
+  const isEdit = Boolean(indispo?.id)
+  const [typeCible, setTypeCible] = useState(indispo?.type_cible || 'groupe')
+  const [groupeId, setGroupeId] = useState(indispo?.groupe_id || '')
+  const [profId, setProfId] = useState(indispo?.professeur_id || '')
+  const [typePeriode, setTypePeriode] = useState(indispo?.type_periode || 'jour')
+  const [semaineId, setSemaineId] = useState(indispo?.semaine_id || (semaines?.[0]?.id || ''))
+  const [jour, setJour] = useState(indispo?.jour || 1)
+  const [dateDebut, setDateDebut] = useState(indispo?.date_debut || '')
+  const [dateFin, setDateFin] = useState(indispo?.date_fin || '')
+  const [motif, setMotif] = useState(indispo?.motif || '')
+  const [actif, setActif] = useState(indispo?.actif ?? true)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!semaineId && semaines && semaines.length > 0) setSemaineId(semaines[0].id)
+  }, [semaines, semaineId])
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault()
+    if (typeCible === 'groupe' && !groupeId) {
+      setError('Veuillez sélectionner un groupe.')
+      return
+    }
+    if (typeCible === 'professeur' && !profId) {
+      setError('Veuillez sélectionner un formateur.')
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      const payload = {
+        type_cible: typeCible,
+        type_periode: typePeriode,
+        motif: motif.trim(),
+        actif,
+      }
+      if (typeCible === 'groupe') payload.groupe_id = groupeId ? +groupeId : null
+      if (typeCible === 'professeur') payload.professeur_id = profId ? +profId : null
+      if (typePeriode === 'jour' || typePeriode === 'semaine') payload.semaine_id = semaineId ? +semaineId : null
+      if (typePeriode === 'jour') payload.jour = +jour
+      if (typePeriode === 'periode') {
+        payload.date_debut = dateDebut || null
+        payload.date_fin = dateFin || null
+      }
+      const res = isEdit
+        ? await apiFetch(`${API}/indisponibilites/${indispo.id}`, { method: 'PUT', body: JSON.stringify(payload) })
+        : await apiFetch(`${API}/indisponibilites`, { method: 'POST', body: JSON.stringify(payload) })
+      onSave(res, isEdit)
+    } catch (err) {
+      setError(err.message || 'Une erreur est survenue')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 18, color: '#0f2d5e' }}>
+            {isEdit ? "Modifier l'indisponibilité" : 'Ajouter une indisponibilité'}
+          </h3>
+          <button onClick={onClose} type="button"
+            style={{ fontSize: 20, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}>
+            ×
+          </button>
+        </div>
+
+        {error && <div className="alert-banner error" style={{ marginBottom: 16 }}><span>{error}</span></div>}
+
+        <form onSubmit={handleSubmit}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div className="modal-field">
+              <label>Cible</label>
+              <select value={typeCible} onChange={e => setTypeCible(e.target.value)}>
+                <option value="groupe">Groupe</option>
+                <option value="professeur">Formateur</option>
+                <option value="tous">Tous les groupes</option>
+              </select>
+            </div>
+            <div className="modal-field">
+              <label>Type de période</label>
+              <select value={typePeriode} onChange={e => setTypePeriode(e.target.value)}>
+                <option value="jour">Jour</option>
+                <option value="semaine">Semaine</option>
+                <option value="periode">Période</option>
+              </select>
+            </div>
+          </div>
+
+          {typeCible === 'groupe' && (
+            <div className="modal-field">
+              <label>Groupe *</label>
+              <select value={groupeId} onChange={e => setGroupeId(e.target.value)} required>
+                <option value="">— Sélectionner —</option>
+                {groupes.map(g => (
+                  <option key={g.id} value={g.id}>{g.code}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {typeCible === 'professeur' && (
+            <div className="modal-field">
+              <label>Formateur *</label>
+              <SearchableSelect
+                value={profId}
+                onChange={setProfId}
+                options={professeurs.map(p => ({ value: p.id, label: p.nom_complet }))}
+                placeholder="Rechercher un formateur…"
+              />
+            </div>
+          )}
+
+          {(typePeriode === 'jour' || typePeriode === 'semaine') && (
+            <div className="modal-field">
+              <label>Semaine *</label>
+              <select value={semaineId} onChange={e => setSemaineId(e.target.value)} required>
+                {semaines.map(s => (
+                  <option key={s.id} value={s.id}>Semaine {s.numero}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {typePeriode === 'jour' && (
+            <div className="modal-field">
+              <label>Jour *</label>
+              <select value={jour} onChange={e => setJour(e.target.value)}>
+                <option value={1}>Lundi</option>
+                <option value={2}>Mardi</option>
+                <option value={3}>Mercredi</option>
+                <option value={4}>Jeudi</option>
+                <option value={5}>Vendredi</option>
+                <option value={6}>Samedi</option>
+              </select>
+            </div>
+          )}
+
+          {typePeriode === 'periode' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div className="modal-field">
+                <label>Date de début *</label>
+                <input type="date" value={dateDebut} onChange={e => setDateDebut(e.target.value)} required />
+              </div>
+              <div className="modal-field">
+                <label>Date de fin *</label>
+                <input type="date" value={dateFin} onChange={e => setDateFin(e.target.value)} required />
+              </div>
+            </div>
+          )}
+
+          <div className="modal-field">
+            <label>Motif</label>
+            <input type="text" placeholder="Ex: Vacances, Formation, Maladie..." value={motif}
+              onChange={e => setMotif(e.target.value)} />
+          </div>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#334155', marginBottom: 8 }}>
+            <input type="checkbox" checked={actif} onChange={e => setActif(e.target.checked)}
+              style={{ width: 16, height: 16, cursor: 'pointer' }} />
+            Actif
+          </label>
+
+          <div className="modal-actions" style={{ marginTop: 24 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>Annuler</button>
+            <button type="submit" className="btn btn-primary" disabled={loading}>
+              {loading ? 'Enregistrement…' : (isEdit ? 'Enregistrer' : 'Créer')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function DeleteIndispoModal({ indispo, onClose, onConfirm, loading }) {
+  if (!indispo) return null
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
+        <h3 style={{ margin: 0, fontSize: 18, color: '#dc2626' }}>Confirmer la suppression</h3>
+        <p style={{ margin: '16px 0 20px', fontSize: 14, color: '#334155', lineHeight: 1.5 }}>
+          Supprimer cette indisponibilité ({indispo.type_cible} — {indispo.type_periode_libelle || indispo.type_periode}) ?
+        </p>
+        <div className="modal-actions">
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>Annuler</button>
+          <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={loading}>
+            {loading ? 'Suppression…' : 'Oui, supprimer'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 export default function Dashboard({ role = 'admin', onLogout }) {
   const [activeNav, setActiveNav] = useState('emploi')
@@ -1051,6 +2215,8 @@ export default function Dashboard({ role = 'admin', onLogout }) {
   const [creneaux, setCreneaux] = useState([])
   const [unites, setUnites] = useState([])
   const [filieres, setFilieres] = useState([])
+  const [modules, setModules] = useState([])
+  const [secteurs, setSecteurs] = useState([])
   const [stats, setStats] = useState(null)
 
   // Filters
@@ -1089,6 +2255,37 @@ export default function Dashboard({ role = 'admin', onLogout }) {
   const [salleSearch, setSalleSearch] = useState('')
   const [salleTypeFilter, setSalleTypeFilter] = useState('all')
 
+  // Module CRUD Modals & Filters
+  const [moduleModalOpen, setModuleModalOpen] = useState(false)
+  const [editingModule, setEditingModule] = useState(null)
+  const [deletingModule, setDeletingModule] = useState(null)
+  const [deletingModuleLoading, setDeletingModuleLoading] = useState(false)
+  const [moduleSearch, setModuleSearch] = useState('')
+  const [moduleTypeFilter, setModuleTypeFilter] = useState('all')
+
+  // Filière CRUD Modals & Filters
+  const [filiereModalOpen, setFiliereModalOpen] = useState(false)
+  const [editingFiliere, setEditingFiliere] = useState(null)
+  const [deletingFiliere, setDeletingFiliere] = useState(null)
+  const [deletingFiliereLoading, setDeletingFiliereLoading] = useState(false)
+  const [indisponibilites, setIndisponibilites] = useState([])
+  const [indispoModalOpen, setIndispoModalOpen] = useState(false)
+  const [editingIndispo, setEditingIndispo] = useState(null)
+  const [deletingIndispo, setDeletingIndispo] = useState(null)
+  const [deletingIndispoLoading, setDeletingIndispoLoading] = useState(false)
+  const [indispoSearch, setIndispoSearch] = useState('')
+  const [filiereSearch, setFiliereSearch] = useState('')
+  const [filiereSecteurFilter, setFiliereSecteurFilter] = useState('all')
+
+  // Affectations Groupe + Module → Formateur
+  const [affectations, setAffectations] = useState([])
+  const [affectationRow, setAffectationRow] = useState(null)
+  const [deletingAffectation, setDeletingAffectation] = useState(null)
+  const [deletingAffectationLoading, setDeletingAffectationLoading] = useState(false)
+  const [affectationSearch, setAffectationSearch] = useState('')
+  const [affectationFiliereFilter, setAffectationFiliereFilter] = useState('all')
+  const [affectationStatutFilter, setAffectationStatutFilter] = useState('all')
+
   const [toasts, setToasts] = useState([])
   const [dbStatus, setDbStatus] = useState(null)
 
@@ -1102,8 +2299,13 @@ export default function Dashboard({ role = 'admin', onLogout }) {
   useEffect(() => {
     const init = async () => {
       try {
-        const [sw, g, p, sl, cr, u, f, ts, hc] = await Promise.all([
-          apiFetch(`${API}/semaines`),
+        let sw = await apiFetch(`${API}/semaines`)
+        if (sw.length === 0) {
+          await apiFetch(`${API}/init-semaines`, { method: 'POST' })
+          sw = await apiFetch(`${API}/semaines`)
+        }
+
+        const [g, p, sl, cr, u, f, ts, hc, m, sec, ind, aff] = await Promise.all([
           apiFetch(`${API}/groupes`),
           apiFetch(`${API}/professeurs`),
           apiFetch(`${API}/salles`),
@@ -1112,6 +2314,10 @@ export default function Dashboard({ role = 'admin', onLogout }) {
           apiFetch(`${API}/filieres`).catch(() => []),
           apiFetch(`${API}/types-salles`).catch(() => []),
           apiFetch(`${API}/health`),
+          apiFetch(`${API}/modules`).catch(() => []),
+          apiFetch(`${API}/secteurs`).catch(() => []),
+          apiFetch(`${API}/indisponibilites`).catch(() => []),
+          apiFetch(`${API}/affectations`).catch(() => []),
         ])
         setSemaines(sw)
         setGroupes(g)
@@ -1121,6 +2327,10 @@ export default function Dashboard({ role = 'admin', onLogout }) {
         setUnites(u)
         setFilieres(f)
         setTypesSalles(ts)
+        setModules(m)
+        setSecteurs(sec)
+        setIndisponibilites(ind)
+        setAffectations(aff)
         setDbStatus(hc.status)
         if (sw.length > 0) setSelectedSemaine(sw[0])
       } catch (e) {
@@ -1311,19 +2521,136 @@ export default function Dashboard({ role = 'admin', onLogout }) {
     }
   }
 
+  const groupesAssignesProf = (prof, moduleId) => (
+    (prof?.affectations || [])
+      .filter(a => a.module_id === moduleId)
+      .map(a => (groupes.find(g => g.id === a.groupe_id) || {}).code)
+      .filter(Boolean)
+  )
+
   const filteredProfsList = useMemo(() => {
     return professeurs.filter(p => {
       const q = (profSearch || '').trim().toLowerCase()
+      const matchModules = !q || (p.modules || []).some(m =>
+        (m.code && m.code.toLowerCase().includes(q)) ||
+        (m.intitule && m.intitule.toLowerCase().includes(q))
+      )
       const matchSearch = !q ||
         (p.nom_complet && p.nom_complet.toLowerCase().includes(q)) ||
         (p.matricule && p.matricule.toLowerCase().includes(q)) ||
-        (p.email && p.email.toLowerCase().includes(q))
+        (p.email && p.email.toLowerCase().includes(q)) ||
+        matchModules
 
       const matchStatut = profStatutFilter === 'all' || p.statut === profStatutFilter
 
       return matchSearch && matchStatut
     })
   }, [professeurs, profSearch, profStatutFilter])
+
+  // ── Affectations : lignes Groupe + Module issues des filières ──────────────
+  const affectationRows = useMemo(() => {
+    const parCouple = new Map()
+    affectations.forEach(a => {
+      const key = `${a.groupe_id}-${a.module_id}`
+      if (!parCouple.has(key)) parCouple.set(key, [])
+      parCouple.get(key).push(a)
+    })
+
+    const rows = []
+    const vus = new Set()
+
+    groupes.forEach(g => {
+      const filiere = filieres.find(f => f.id === g.filiere_id)
+      ;(filiere?.module_ids || []).forEach(moduleId => {
+        const module = modules.find(m => m.id === moduleId)
+        if (!module) return
+        const key = `${g.id}-${moduleId}`
+        vus.add(key)
+        rows.push({
+          key,
+          groupe: g,
+          filiere,
+          module,
+          affectations: parCouple.get(key) || [],
+        })
+      })
+    })
+
+    // Affectations existantes dont le module n'est plus coché dans la filière.
+    parCouple.forEach((list, key) => {
+      if (vus.has(key)) return
+      const a = list[0]
+      const groupe = groupes.find(g => g.id === a.groupe_id)
+      const module = modules.find(m => m.id === a.module_id)
+      if (!groupe || !module) return
+      rows.push({
+        key,
+        groupe,
+        filiere: filieres.find(f => f.id === groupe.filiere_id),
+        module,
+        affectations: list,
+        horsFiliere: true,
+      })
+    })
+
+    return rows.sort((a, b) => {
+      const g = (a.groupe.code || '').localeCompare(b.groupe.code || '', undefined, { numeric: true })
+      if (g !== 0) return g
+      return (a.module.code || '').localeCompare(b.module.code || '', undefined, { numeric: true })
+    })
+  }, [groupes, filieres, modules, affectations])
+
+  const filteredAffectationRows = useMemo(() => {
+    const q = (affectationSearch || '').trim().toLowerCase()
+    return affectationRows.filter(row => {
+      const matchSearch = !q ||
+        (row.groupe.code || '').toLowerCase().includes(q) ||
+        (row.filiere?.code || '').toLowerCase().includes(q) ||
+        (row.module.code || '').toLowerCase().includes(q) ||
+        (row.module.intitule || '').toLowerCase().includes(q) ||
+        (row.affectations || []).some(a =>
+          (a.professeur_nom || '').toLowerCase().includes(q) ||
+          (a.matricule || '').toLowerCase().includes(q)
+        )
+      const matchFiliere = affectationFiliereFilter === 'all' ||
+        String(row.groupe.filiere_id) === String(affectationFiliereFilter)
+      const matchStatut = affectationStatutFilter === 'all' ||
+        (affectationStatutFilter === 'affecte'
+          ? row.affectations.length > 0
+          : row.affectations.length === 0)
+      return matchSearch && matchFiliere && matchStatut
+    })
+  }, [affectationRows, affectationSearch, affectationFiliereFilter, affectationStatutFilter])
+
+  const handleSaveAffectation = (saved) => {
+    setAffectations(prev => (
+      prev.some(a => a.id === saved.id) ? prev : [...prev, saved]
+    ))
+    addToast(
+      `${saved.professeur_nom} affecté à ${saved.module_code} / ${saved.groupe_code}`,
+      'success'
+    )
+    setAffectationRow(null)
+    apiFetch(`${API}/professeurs`).then(setProfesseurs).catch(() => {})
+  }
+
+  const handleDeleteAffectationConfirm = async () => {
+    if (!deletingAffectation) return
+    setDeletingAffectationLoading(true)
+    try {
+      const res = await apiFetch(`${API}/affectations/${deletingAffectation.id}`, {
+        method: 'DELETE',
+      })
+      setAffectations(prev => prev.filter(a => a.id !== deletingAffectation.id))
+      addToast(res.message || 'Affectation retirée.', 'success')
+      setDeletingAffectation(null)
+      apiFetch(`${API}/professeurs`).then(setProfesseurs).catch(() => {})
+    } catch (err) {
+      addToast(err.message || "Erreur lors du retrait de l'affectation", 'error')
+    } finally {
+      setDeletingAffectationLoading(false)
+    }
+  }
 
   // Salle CRUD handlers
   const handleSaveSalle = (savedSalle, isEdit) => {
@@ -1368,6 +2695,138 @@ export default function Dashboard({ role = 'admin', onLogout }) {
       return matchSearch && matchType
     })
   }, [salles, salleSearch, salleTypeFilter])
+
+  // Module CRUD handlers
+  const handleSaveModule = (savedModule, isEdit) => {
+    if (isEdit) {
+      setModules(prev => prev.map(m => m.id === savedModule.id ? savedModule : m))
+      addToast(`Module ${savedModule.code} modifié avec succès`, 'success')
+    } else {
+      setModules(prev => [...prev, savedModule].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true })))
+      addToast(`Module ${savedModule.code} créé avec succès`, 'success')
+    }
+    setModuleModalOpen(false)
+    setEditingModule(null)
+  }
+
+  const handleDeleteModuleConfirm = async () => {
+    if (!deletingModule) return
+    setDeletingModuleLoading(true)
+    try {
+      const res = await apiFetch(`${API}/modules/${deletingModule.id}`, { method: 'DELETE' })
+      setModules(prev => prev.filter(m => m.id !== deletingModule.id))
+      addToast(res.message || `Module ${deletingModule.code} supprimé avec succès`, 'success')
+      setDeletingModule(null)
+    } catch (err) {
+      addToast(err.message || 'Erreur lors de la suppression du module', 'error')
+    } finally {
+      setDeletingModuleLoading(false)
+    }
+  }
+
+  const filteredModulesList = useMemo(() => {
+    return modules.filter(m => {
+      const q = (moduleSearch || '').trim().toLowerCase()
+      const matchSearch = !q ||
+        (m.code && m.code.toLowerCase().includes(q)) ||
+        (m.intitule && m.intitule.toLowerCase().includes(q))
+
+      const matchType = moduleTypeFilter === 'all' || m.type_module === moduleTypeFilter
+
+      return matchSearch && matchType
+    })
+  }, [modules, moduleSearch, moduleTypeFilter])
+
+  // Filière CRUD handlers
+  const handleSaveFiliere = (savedFiliere, isEdit) => {
+    if (isEdit) {
+      setFilieres(prev => prev.map(f => f.id === savedFiliere.id ? savedFiliere : f))
+      addToast(`Filière ${savedFiliere.code} modifiée avec succès`, 'success')
+    } else {
+      setFilieres(prev => [...prev, savedFiliere].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true })))
+      addToast(`Filière ${savedFiliere.code} créée avec succès`, 'success')
+    }
+    setFiliereModalOpen(false)
+    setEditingFiliere(null)
+    // Un nouveau secteur a pu être créé depuis la modale : rafraîchir la liste.
+    apiFetch(`${API}/secteurs`).then(setSecteurs).catch(() => {})
+  }
+
+  const handleDeleteFiliereConfirm = async () => {
+    if (!deletingFiliere) return
+    setDeletingFiliereLoading(true)
+    try {
+      const res = await apiFetch(`${API}/filieres/${deletingFiliere.id}`, { method: 'DELETE' })
+      setFilieres(prev => prev.filter(f => f.id !== deletingFiliere.id))
+      addToast(res.message || `Filière ${deletingFiliere.code} supprimée avec succès`, 'success')
+      setDeletingFiliere(null)
+    } catch (err) {
+      addToast(err.message || 'Erreur lors de la suppression de la filière', 'error')
+    } finally {
+      setDeletingFiliereLoading(false)
+    }
+  }
+
+  const filteredFilieresList = useMemo(() => {
+    return filieres.filter(f => {
+      const q = (filiereSearch || '').trim().toLowerCase()
+      const matchModules = !q || (f.modules || []).some(m =>
+        (m.code && m.code.toLowerCase().includes(q)) ||
+        (m.intitule && m.intitule.toLowerCase().includes(q))
+      )
+      const matchSearch = !q ||
+        (f.code && f.code.toLowerCase().includes(q)) ||
+        (f.intitule && f.intitule.toLowerCase().includes(q)) ||
+        (f.secteur_nom && f.secteur_nom.toLowerCase().includes(q)) ||
+        matchModules
+
+      const matchSecteur = filiereSecteurFilter === 'all' ||
+        String(f.secteur_id) === String(filiereSecteurFilter)
+
+      return matchSearch && matchSecteur
+    })
+  }, [filieres, filiereSearch, filiereSecteurFilter])
+
+  // Indisponibilité CRUD handlers
+  const handleSaveIndispo = (saved, isEdit) => {
+    if (isEdit) {
+      setIndisponibilites(prev => prev.map(i => i.id === saved.id ? saved : i))
+      addToast('Indisponibilité modifiée avec succès', 'success')
+    } else {
+      setIndisponibilites(prev => [saved, ...prev])
+      addToast('Indisponibilité créée avec succès', 'success')
+    }
+    setIndispoModalOpen(false)
+    setEditingIndispo(null)
+  }
+
+  const handleDeleteIndispoConfirm = async () => {
+    if (!deletingIndispo) return
+    setDeletingIndispoLoading(true)
+    try {
+      const res = await apiFetch(`${API}/indisponibilites/${deletingIndispo.id}`, { method: 'DELETE' })
+      setIndisponibilites(prev => prev.filter(i => i.id !== deletingIndispo.id))
+      addToast(res.message || 'Indisponibilité supprimée avec succès', 'success')
+      setDeletingIndispo(null)
+    } catch (err) {
+      addToast(err.message || 'Erreur lors de la suppression', 'error')
+    } finally {
+      setDeletingIndispoLoading(false)
+    }
+  }
+
+  const filteredIndisposList = useMemo(() => {
+    const q = (indispoSearch || '').trim().toLowerCase()
+    return indisponibilites.filter(i => {
+      if (!q) return true
+      return (
+        (i.motif && i.motif.toLowerCase().includes(q)) ||
+        (i.groupe_code && i.groupe_code.toLowerCase().includes(q)) ||
+        (i.professeur_nom && i.professeur_nom.toLowerCase().includes(q)) ||
+        (i.type_cible && i.type_cible.toLowerCase().includes(q))
+      )
+    })
+  }, [indisponibilites, indispoSearch])
 
   // Groupes structured by sections (DEV 1ère, DEV 2ème, ID 1ère, ID 2ème, GE, etc.)
   const groupedSections = useMemo(() => {
@@ -1475,7 +2934,10 @@ export default function Dashboard({ role = 'admin', onLogout }) {
         const r2 = ['', 'MODULE']
         ALL_24_SLOTS.forEach(slot => {
           const s = seanceMap[`${g.id}_${slot.jour}_${slot.seance}`]
-          r2.push(s ? (s.module_intitule || s.module_code) : '')
+          const moduleLabel = s
+            ? `${s.module_intitule || s.module_code}${s.nature === 'examen' ? ' (EFM)' : ''}`
+            : ''
+          r2.push(moduleLabel)
         })
         r2.push('')
         rows.push(r2.map(escapeCsv).join(';'))
@@ -1527,7 +2989,11 @@ export default function Dashboard({ role = 'admin', onLogout }) {
             { id: 'emploi',  label: 'Emploi du temps' },
             { id: 'groupes', label: 'Groupes' },
             { id: 'profs',   label: 'Formateurs' },
+            { id: 'affectations', label: 'Affectations' },
             { id: 'salles',  label: 'Salles' },
+            { id: 'modules', label: 'Modules' },
+            { id: 'filieres', label: 'Filières' },
+            { id: 'indispos', label: 'Congés / Jours libres' },
           ].map(item => (
             <button
               key={item.id}
@@ -1558,7 +3024,11 @@ export default function Dashboard({ role = 'admin', onLogout }) {
             {activeNav === 'emploi'  && 'Emploi du temps — ISTA NTIC 2'}
             {activeNav === 'groupes' && 'Gestion des Groupes'}
             {activeNav === 'profs'   && 'Gestion des Formateurs'}
+            {activeNav === 'affectations' && 'Affectations Groupe + Module'}
             {activeNav === 'salles'  && 'Salles et Locaux'}
+            {activeNav === 'modules' && 'Gestion des Modules'}
+            {activeNav === 'filieres' && 'Gestion des Filières'}
+            {activeNav === 'indispos' && 'Congés & Jours libres'}
           </h1>
           <div className="topbar-right">
             <span style={{ fontSize: 13, color: '#475569', fontWeight: 500 }}>
@@ -1855,9 +3325,17 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                                         key={`mod_${groupe.id}_${slot.jour}_${slot.seance}`}
                                         className={s ? 'module cell-clickable' : 'vide cell-clickable'}
                                         onClick={() => s ? setEditSeance(s) : handleCellClickEmpty(groupe, slot.jour, slot.seance)}
-                                        title={s ? `${s.module_intitule} (${s.module_code}) | Cliquez pour modifier` : `Cliquer pour ajouter une séance (${displayCode} - ${slot.jourNom} S${slot.seance})`}
+                                        title={s
+                                          ? `${s.module_intitule} (${s.module_code})${s.nature === 'examen' ? ' — EFM (examen de fin de module)' : ''} | Cliquez pour modifier`
+                                          : `Cliquer pour ajouter une séance (${displayCode} - ${slot.jourNom} S${slot.seance})`
+                                        }
                                       >
-                                        {s ? (s.module_intitule || s.module_code) : ''}
+                                        {s ? (
+                                          <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                                            {s.nature === 'examen' && <span className="efm-badge">EFM</span>}
+                                            <span>{s.module_intitule || s.module_code}</span>
+                                          </span>
+                                        ) : ''}
                                       </td>
                                     )
                                   })}
@@ -2119,7 +3597,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                               {g.effectif}
                             </td>
                             <td style={{ padding: '14px 18px', color: '#475569' }}>
-                              {g.mode_formation || 'Résidentiel'}
+                              {g.mode_formation_libelle || g.mode_formation || 'Présentiel'}
                             </td>
                             <td style={{ padding: '14px 18px', color: '#64748b', fontSize: 12 }}>
                               <span style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>
@@ -2232,7 +3710,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                     </span>
                   </div>
                   <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
-                    Corps professoral de l'établissement • Gestion des affectations et disponibilités
+                    Corps professoral de l'établissement • Disponibilités et salles préférées
                   </p>
                 </div>
 
@@ -2337,15 +3815,18 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                         <th style={{ padding: '14px 18px' }}>Nom Affiché (Emploi)</th>
                         <th style={{ padding: '14px 18px' }}>Matricule</th>
                         <th style={{ padding: '14px 18px' }}>Email</th>
+                        <th style={{ padding: '14px 18px' }}>Modules affectés</th>
                         <th style={{ padding: '14px 18px', textAlign: 'center' }}>Statut</th>
                         <th style={{ padding: '14px 18px', textAlign: 'center' }}>Présence</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>Salle préf. Matin</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>Salle préf. Après-midi</th>
                         <th style={{ padding: '14px 18px', textAlign: 'right' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredProfsList.length === 0 ? (
                         <tr>
-                          <td colSpan={7} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
+                          <td colSpan={10} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
                             
                             <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>Aucun formateur trouvé</div>
                             <div style={{ fontSize: 13, marginTop: 4 }}>Modifiez votre filtre ou terme de recherche</div>
@@ -2383,6 +3864,39 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                             <td style={{ padding: '14px 18px', color: '#475569' }}>
                               {p.email || '—'}
                             </td>
+                            <td style={{ padding: '14px 18px' }}>
+                              {(p.modules || []).length === 0 ? (
+                                <span style={{ color: '#94a3b8', fontSize: 11 }}>Aucun — voir Affectations</span>
+                              ) : (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                  {(p.modules || []).slice(0, 3).map(m => (
+                                    <span
+                                      key={m.id}
+                                      title={(() => {
+                                        const codes = groupesAssignesProf(p, m.id)
+                                        return codes.length
+                                          ? `${m.intitule} — Groupes : ${codes.join(', ')}`
+                                          : m.intitule
+                                      })()}
+                                      style={{
+                                        background: '#eff6ff', color: '#1d4ed8', padding: '2px 7px',
+                                        borderRadius: 4, border: '1px solid #bfdbfe', fontSize: 11, fontWeight: 600
+                                      }}
+                                    >
+                                      {m.code}
+                                    </span>
+                                  ))}
+                                  {(p.modules || []).length > 3 && (
+                                    <span style={{
+                                      background: '#f1f5f9', color: '#475569', padding: '2px 7px',
+                                      borderRadius: 4, border: '1px solid #e2e8f0', fontSize: 11, fontWeight: 600
+                                    }}>
+                                      +{(p.modules || []).length - 3}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </td>
                             <td style={{ padding: '14px 18px', textAlign: 'center' }}>
                               <span style={{
                                 background: p.statut === 'vacataire' ? '#eff6ff' : '#f0fdf4',
@@ -2398,6 +3912,34 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                             </td>
                             <td style={{ padding: '14px 18px', textAlign: 'center', fontWeight: 600, color: '#334155' }}>
                               {p.taux_presence ? `${p.taux_presence}%` : '100%'}
+                            </td>
+                            <td style={{ padding: '14px 18px', textAlign: 'center' }}>
+                              {p.salle_preferee_matin_nom ? (
+                                <span style={{
+                                  background: '#fef9c3',
+                                  color: '#854d0e',
+                                  padding: '3px 8px',
+                                  borderRadius: 4,
+                                  fontSize: 11,
+                                  fontWeight: 600
+                                }}>
+                                  {p.salle_preferee_matin_nom}
+                                </span>
+                              ) : '—'}
+                            </td>
+                            <td style={{ padding: '14px 18px', textAlign: 'center' }}>
+                              {p.salle_preferee_apm_nom ? (
+                                <span style={{
+                                  background: '#e0e7ff',
+                                  color: '#3730a3',
+                                  padding: '3px 8px',
+                                  borderRadius: 4,
+                                  fontSize: 11,
+                                  fontWeight: 600
+                                }}>
+                                  {p.salle_preferee_apm_nom}
+                                </span>
+                              ) : '—'}
                             </td>
                             <td style={{ padding: '14px 18px', textAlign: 'right' }}>
                               <div style={{ display: 'inline-flex', gap: 6 }}>
@@ -2453,6 +3995,331 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                           </tr>
                         ))
                       )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── AFFECTATIONS VIEW ── */}
+          {activeNav === 'affectations' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {/* Header card */}
+              <div style={{
+                background: '#fff',
+                borderRadius: 12,
+                padding: '20px 24px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 16
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <h2 style={{ margin: 0, fontSize: 20, color: '#0f2d5e', fontWeight: 700 }}>
+                      Affectations Groupe + Module
+                    </h2>
+                    <span style={{
+                      background: '#eff6ff',
+                      color: '#1d4ed8',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      borderRadius: 20,
+                      border: '1px solid #bfdbfe'
+                    }}>
+                      {affectations.length} affectation{affectations.length > 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+                    Chaque couple Groupe + Module provient des modules cochés dans la filière du groupe.
+                  </p>
+                </div>
+                <div style={{
+                  fontSize: 12,
+                  color: '#64748b',
+                  textAlign: 'right',
+                  lineHeight: 1.6
+                }}>
+                  <strong style={{ color: '#0f2d5e' }}>{affectationRows.length}</strong> couple{affectationRows.length > 1 ? 's' : ''} groupe/module
+                  <br />
+                  <strong style={{ color: '#b45309' }}>
+                    {affectationRows.filter(r => r.affectations.length === 0).length}
+                  </strong>{' '}
+                  sans formateur
+                </div>
+              </div>
+
+              {/* Workflow hint */}
+              <div style={{
+                background: '#eff6ff',
+                border: '1px solid #bfdbfe',
+                borderRadius: 12,
+                padding: '14px 18px',
+                fontSize: 12,
+                color: '#1e3a8a',
+                lineHeight: 1.7,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                flexWrap: 'wrap'
+              }}>
+                <strong>Comment ça marche :</strong>
+                <span>1. cochez les modules dans</span>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ padding: '2px 10px', fontSize: 11 }}
+                  onClick={() => setActiveNav('filieres')}
+                >
+                  Filières
+                </button>
+                <span>2. renseignez « Heures / sem. » dans</span>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ padding: '2px 10px', fontSize: 11 }}
+                  onClick={() => setActiveNav('modules')}
+                >
+                  Modules
+                </button>
+                <span>3. affectez ici un formateur par couple. Sans formateur, les séances restent planifiées (sans formateur).</span>
+              </div>
+
+              {/* Filters toolbar */}
+              <div style={{
+                background: '#fff',
+                borderRadius: 12,
+                padding: '16px 20px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 14,
+                flexWrap: 'wrap'
+              }}>
+                <div style={{ flex: '1 1 260px', minWidth: 200 }}>
+                  <input
+                    type="text"
+                    placeholder="Rechercher (groupe, module, formateur...)"
+                    value={affectationSearch}
+                    onChange={e => setAffectationSearch(e.target.value)}
+                    style={{
+                      width: '100%',
+                      height: 38,
+                      padding: '0 12px',
+                      border: '1.5px solid #e2e8f0',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      outline: 'none',
+                      background: '#f8fafc'
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Filière :</label>
+                  <select
+                    value={affectationFiliereFilter}
+                    onChange={e => setAffectationFiliereFilter(e.target.value)}
+                    style={{
+                      height: 38,
+                      padding: '0 12px',
+                      border: '1.5px solid #e2e8f0',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      background: '#fff',
+                      outline: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="all">Toutes les filières</option>
+                    {filieres.map(f => (
+                      <option key={f.id} value={f.id}>{f.code}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Statut :</label>
+                  <select
+                    value={affectationStatutFilter}
+                    onChange={e => setAffectationStatutFilter(e.target.value)}
+                    style={{
+                      height: 38,
+                      padding: '0 12px',
+                      border: '1.5px solid #e2e8f0',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      background: '#fff',
+                      outline: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="all">Tous</option>
+                    <option value="affecte">Affectés</option>
+                    <option value="non_affecte">Sans formateur</option>
+                  </select>
+                </div>
+
+                {(affectationSearch || affectationFiliereFilter !== 'all' || affectationStatutFilter !== 'all') && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      setAffectationSearch('')
+                      setAffectationFiliereFilter('all')
+                      setAffectationStatutFilter('all')
+                    }}
+                    style={{ height: 38, padding: '0 12px', fontSize: 12 }}
+                  >
+                    Réinitialiser
+                  </button>
+                )}
+
+                <div style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b' }}>
+                  Affichage de <strong>{filteredAffectationRows.length}</strong> sur {affectationRows.length} couples
+                </div>
+              </div>
+
+              {/* Table Card */}
+              <div style={{
+                background: '#fff',
+                borderRadius: 12,
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0',
+                overflow: 'hidden'
+              }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569' }}>
+                        <th style={{ padding: '14px 18px' }}>Groupe</th>
+                        <th style={{ padding: '14px 18px' }}>Module</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>Heures / sem.</th>
+                        <th style={{ padding: '14px 18px' }}>Formateur(s)</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredAffectationRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
+                            <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>
+                              Aucun couple groupe/module à afficher
+                            </div>
+                            <div style={{ fontSize: 13, marginTop: 6 }}>
+                              Cochez des modules dans les filières pour faire apparaître les affectations.
+                            </div>
+                          </td>
+                        </tr>
+                      ) : filteredAffectationRows.map(row => (
+                        <tr key={row.key} style={{ borderBottom: '1px solid #eef2f7' }}>
+                          <td style={{ padding: '12px 18px' }}>
+                            <div style={{ fontWeight: 700, color: '#0f2d5e' }}>
+                              {formatGroupeDisplay(row.groupe.code)}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#64748b' }}>
+                              {row.filiere?.code || row.groupe.filiere_code || '—'}
+                            </div>
+                          </td>
+                          <td style={{ padding: '12px 18px' }}>
+                            <div style={{ color: '#334155' }}>
+                              <strong style={{ color: '#0f2d5e' }}>{row.module.code}</strong> — {row.module.intitule}
+                            </div>
+                            {row.horsFiliere && (
+                              <span style={{
+                                display: 'inline-block',
+                                marginTop: 3,
+                                background: '#fffbeb',
+                                color: '#b45309',
+                                border: '1px solid #fde68a',
+                                borderRadius: 4,
+                                padding: '1px 6px',
+                                fontSize: 10,
+                                fontWeight: 700
+                              }}>
+                                Module hors filière
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: '12px 18px', textAlign: 'center', fontWeight: 700, color: '#1d4ed8' }}>
+                            {row.module.heures_hebdomadaires != null
+                              ? `${row.module.heures_hebdomadaires} h`
+                              : '—'}
+                          </td>
+                          <td style={{ padding: '12px 18px' }}>
+                            {row.affectations.length === 0 ? (
+                              <span style={{
+                                background: '#fffbeb',
+                                color: '#b45309',
+                                border: '1px solid #fde68a',
+                                borderRadius: 20,
+                                padding: '3px 10px',
+                                fontSize: 11,
+                                fontWeight: 700
+                              }}>
+                                Non affecté
+                              </span>
+                            ) : (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                {row.affectations.map(a => (
+                                  <span
+                                    key={a.id}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 6,
+                                      background: '#f0fdf4',
+                                      color: '#15803d',
+                                      border: '1px solid #bbf7d0',
+                                      borderRadius: 20,
+                                      padding: '3px 6px 3px 10px',
+                                      fontSize: 11,
+                                      fontWeight: 600
+                                    }}
+                                  >
+                                    {a.professeur_nom}
+                                    <button
+                                      type="button"
+                                      title="Retirer cette affectation"
+                                      onClick={() => setDeletingAffectation(a)}
+                                      style={{
+                                        border: 'none',
+                                        background: '#dcfce7',
+                                        color: '#166534',
+                                        width: 16,
+                                        height: 16,
+                                        borderRadius: '50%',
+                                        cursor: 'pointer',
+                                        fontSize: 11,
+                                        lineHeight: '14px',
+                                        padding: 0
+                                      }}
+                                    >
+                                      ×
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '12px 18px', textAlign: 'right' }}>
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ padding: '5px 10px', fontSize: 12 }}
+                              onClick={() => setAffectationRow(row)}
+                            >
+                              + Affecter
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
@@ -2706,6 +4573,521 @@ export default function Dashboard({ role = 'admin', onLogout }) {
               </div>
             </div>
           )}
+          {/* ── MODULES VIEW ── */}
+          {activeNav === 'modules' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <div style={{
+                background: '#fff', borderRadius: 12, padding: '20px 24px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1px solid #e2e8f0',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                flexWrap: 'wrap', gap: 16
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <h2 style={{ margin: 0, fontSize: 20, color: '#0f2d5e', fontWeight: 700 }}>
+                      Gestion des Modules
+                    </h2>
+                    <span style={{
+                      background: '#eef2ff', color: '#4338ca', fontSize: 12, fontWeight: 700,
+                      padding: '3px 10px', borderRadius: 20, border: '1px solid #c7d2fe'
+                    }}>
+                      {modules.length} modules
+                    </span>
+                  </div>
+                  <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+                    Référentiel des modules techniques et généraux • Types de salles compatibles
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => { setEditingModule(null); setModuleModalOpen(true) }}
+                  style={{ padding: '0 20px', height: 40, fontSize: 13, boxShadow: '0 2px 6px rgba(26,95,168,0.25)' }}
+                >
+                  + Ajouter un Module
+                </button>
+              </div>
+
+              <div style={{
+                background: '#fff', borderRadius: 12, padding: '16px 20px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1px solid #e2e8f0',
+                display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap'
+              }}>
+                <div style={{ flex: '1 1 260px', minWidth: 200 }}>
+                  <input
+                    type="text"
+                    placeholder="Rechercher un module (code, intitulé...)"
+                    value={moduleSearch}
+                    onChange={e => setModuleSearch(e.target.value)}
+                    style={{
+                      width: '100%', height: 38, padding: '0 12px', border: '1.5px solid #e2e8f0',
+                      borderRadius: 8, fontSize: 13, outline: 'none', background: '#f8fafc'
+                    }}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Type :</label>
+                  <select
+                    value={moduleTypeFilter}
+                    onChange={e => setModuleTypeFilter(e.target.value)}
+                    style={{
+                      height: 38, padding: '0 12px', border: '1.5px solid #e2e8f0', borderRadius: 8,
+                      fontSize: 13, background: '#fff', outline: 'none', cursor: 'pointer'
+                    }}
+                  >
+                    <option value="all">Tous les types</option>
+                    <option value="technique">Technique (Métier)</option>
+                    <option value="general">Général (Soft Skills)</option>
+                  </select>
+                </div>
+                <div style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b' }}>
+                  Affichage de <strong>{filteredModulesList.length}</strong> sur {modules.length} modules
+                </div>
+              </div>
+
+              <div style={{
+                background: '#fff', borderRadius: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0', overflow: 'hidden'
+              }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569' }}>
+                        <th style={{ padding: '14px 18px' }}>Code</th>
+                        <th style={{ padding: '14px 18px' }}>Intitulé</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>Type</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>Régional</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>EFM</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>Séances</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>Heures / sem.</th>
+                        <th style={{ padding: '14px 18px' }}>Salles compatibles</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredModulesList.length === 0 ? (
+                        <tr>
+                          <td colSpan={9} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
+                            <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>Aucun module trouvé</div>
+                            <div style={{ fontSize: 13, marginTop: 4 }}>Modifiez votre filtre ou terme de recherche</div>
+                          </td>
+                        </tr>
+                      ) : filteredModulesList.map(m => (
+                        <tr
+                          key={m.id}
+                          style={{ borderBottom: '1px solid #f1f5f9' }}
+                          onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                        >
+                          <td style={{ padding: '14px 18px' }}>
+                            <span style={{
+                              background: '#eef2ff', color: '#4338ca', padding: '4px 10px',
+                              borderRadius: 6, border: '1px solid #c7d2fe', fontWeight: 700
+                            }}>
+                              {m.code}
+                            </span>
+                          </td>
+                          <td style={{ padding: '14px 18px', fontWeight: 600, color: '#0f172a' }}>{m.intitule}</td>
+                          <td style={{ padding: '14px 18px', textAlign: 'center' }}>
+                            <span style={{
+                              background: m.type_module === 'general' ? '#fef3c7' : '#f0fdf4',
+                              color: m.type_module === 'general' ? '#b45309' : '#15803d',
+                              padding: '3px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700
+                            }}>
+                              {m.type_module_libelle || m.type_module}
+                            </span>
+                          </td>
+                          <td style={{ padding: '14px 18px', textAlign: 'center', color: '#475569' }}>
+                            {m.regional ? 'Oui' : '—'}
+                          </td>
+                          <td style={{ padding: '14px 18px', textAlign: 'center' }}>
+                            {m.efm_fin_module ? (
+                              <span style={{
+                                display: 'inline-flex', flexDirection: 'column',
+                                alignItems: 'center', gap: 3
+                              }}>
+                                <span style={{
+                                  background: '#fee2e2', color: '#b91c1c',
+                                  padding: '3px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700
+                                }}>
+                                  EFM
+                                </span>
+                                {m.date_efm && (
+                                  <span style={{ fontSize: 11, color: '#475569' }}>
+                                    {formatDate(m.date_efm)}
+                                  </span>
+                                )}
+                              </span>
+                            ) : '—'}
+                          </td>
+                          <td style={{ padding: '14px 18px', textAlign: 'center' }}>
+                            <span style={{
+                              background: m.peut_avoir_seance_2_5 ? '#fef3c7' : '#f1f5f9',
+                              color: m.peut_avoir_seance_2_5 ? '#b45309' : '#475569',
+                              padding: '3px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700
+                            }}>
+                              {m.peut_avoir_seance_2_5 ? '5 h / 2,5 h' : '5 h'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '14px 18px', textAlign: 'center', fontWeight: 700, color: '#1d4ed8' }}>
+                            {m.heures_hebdomadaires != null ? `${m.heures_hebdomadaires} h` : '—'}
+                          </td>
+                          <td style={{ padding: '14px 18px', color: '#475569', fontSize: 12 }}>
+                            {m.types_salles_libelles?.length ? m.types_salles_libelles.join(', ') : 'Toutes'}
+                          </td>
+                          <td style={{ padding: '14px 18px', textAlign: 'right' }}>
+                            <div style={{ display: 'inline-flex', gap: 6 }}>
+                              <button
+                                type="button"
+                                onClick={() => { setEditingModule(m); setModuleModalOpen(true) }}
+                                style={{
+                                  padding: '6px 12px', borderRadius: 6, border: '1px solid #bfdbfe',
+                                  background: '#eff6ff', color: '#1d4ed8', fontSize: 12, fontWeight: 600, cursor: 'pointer'
+                                }}
+                              >
+                                Modifier
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeletingModule(m)}
+                                style={{
+                                  padding: '6px 12px', borderRadius: 6, border: '1px solid #fecaca',
+                                  background: '#fef2f2', color: '#b91c1c', fontSize: 12, fontWeight: 600, cursor: 'pointer'
+                                }}
+                              >
+                                Supprimer
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── FILIÈRES VIEW ── */}
+          {activeNav === 'filieres' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <div style={{
+                background: '#fff', borderRadius: 12, padding: '20px 24px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1px solid #e2e8f0',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                flexWrap: 'wrap', gap: 16
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <h2 style={{ margin: 0, fontSize: 20, color: '#0f2d5e', fontWeight: 700 }}>
+                      Gestion des Filières
+                    </h2>
+                    <span style={{
+                      background: '#fdf4ff', color: '#86198f', fontSize: 12, fontWeight: 700,
+                      padding: '3px 10px', borderRadius: 20, border: '1px solid #f5d0fe'
+                    }}>
+                      {filieres.length} filières
+                    </span>
+                  </div>
+                  <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+                    Filières de formation rattachées aux secteurs • {groupes.length} groupes répartis
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => { setEditingFiliere(null); setFiliereModalOpen(true) }}
+                  style={{ padding: '0 20px', height: 40, fontSize: 13, boxShadow: '0 2px 6px rgba(26,95,168,0.25)' }}
+                >
+                  + Ajouter une Filière
+                </button>
+              </div>
+
+              <div style={{
+                background: '#fff', borderRadius: 12, padding: '16px 20px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1px solid #e2e8f0',
+                display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap'
+              }}>
+                <div style={{ flex: '1 1 260px', minWidth: 200 }}>
+                  <input
+                    type="text"
+                    placeholder="Rechercher une filière (code, intitulé, secteur...)"
+                    value={filiereSearch}
+                    onChange={e => setFiliereSearch(e.target.value)}
+                    style={{
+                      width: '100%', height: 38, padding: '0 12px', border: '1.5px solid #e2e8f0',
+                      borderRadius: 8, fontSize: 13, outline: 'none', background: '#f8fafc'
+                    }}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Secteur :</label>
+                  <select
+                    value={filiereSecteurFilter}
+                    onChange={e => setFiliereSecteurFilter(e.target.value)}
+                    style={{
+                      height: 38, padding: '0 12px', border: '1.5px solid #e2e8f0', borderRadius: 8,
+                      fontSize: 13, background: '#fff', outline: 'none', cursor: 'pointer'
+                    }}
+                  >
+                    <option value="all">Tous les secteurs</option>
+                    {secteurs.map(s => (
+                      <option key={s.id} value={s.id}>{s.intitule} ({s.code})</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b' }}>
+                  Affichage de <strong>{filteredFilieresList.length}</strong> sur {filieres.length} filières
+                </div>
+              </div>
+
+              <div style={{
+                background: '#fff', borderRadius: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0', overflow: 'hidden'
+              }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569' }}>
+                        <th style={{ padding: '14px 18px' }}>Code</th>
+                        <th style={{ padding: '14px 18px' }}>Intitulé</th>
+                        <th style={{ padding: '14px 18px' }}>Secteur</th>
+                        <th style={{ padding: '14px 18px' }}>Modules</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>Niveau</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>Groupes</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredFilieresList.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
+                            <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>Aucune filière trouvée</div>
+                            <div style={{ fontSize: 13, marginTop: 4 }}>Modifiez votre filtre ou terme de recherche</div>
+                          </td>
+                        </tr>
+                      ) : filteredFilieresList.map(f => (
+                        <tr
+                          key={f.id}
+                          style={{ borderBottom: '1px solid #f1f5f9' }}
+                          onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                        >
+                          <td style={{ padding: '14px 18px' }}>
+                            <span style={{
+                              background: '#fdf4ff', color: '#86198f', padding: '4px 10px',
+                              borderRadius: 6, border: '1px solid #f5d0fe', fontWeight: 700
+                            }}>
+                              {f.code}
+                            </span>
+                          </td>
+                          <td style={{ padding: '14px 18px', fontWeight: 600, color: '#0f172a' }}>{f.intitule}</td>
+                          <td style={{ padding: '14px 18px', color: '#475569' }}>
+                            <div style={{ fontWeight: 600 }}>{f.secteur_nom}</div>
+                            <div style={{ fontSize: 11, color: '#64748b' }}>{f.secteur_code}</div>
+                          </td>
+                          <td style={{ padding: '14px 18px' }}>
+                            {(f.modules || []).length === 0 ? (
+                              <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>
+                            ) : (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                {(f.modules || []).slice(0, 3).map(m => (
+                                  <span
+                                    key={m.id}
+                                    title={m.intitule}
+                                    style={{
+                                      background: '#eff6ff', color: '#1d4ed8', padding: '2px 7px',
+                                      borderRadius: 4, border: '1px solid #bfdbfe', fontSize: 11, fontWeight: 600
+                                    }}
+                                  >
+                                    {m.code}
+                                  </span>
+                                ))}
+                                {(f.modules || []).length > 3 && (
+                                  <span style={{
+                                    background: '#f1f5f9', color: '#475569', padding: '2px 7px',
+                                    borderRadius: 4, border: '1px solid #e2e8f0', fontSize: 11, fontWeight: 600
+                                  }}>
+                                    +{(f.modules || []).length - 3}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '14px 18px', textAlign: 'center', color: '#475569' }}>{f.niveau || '—'}</td>
+                          <td style={{ padding: '14px 18px', textAlign: 'center', fontWeight: 700, color: '#0f172a' }}>
+                            {groupes.filter(g => g.filiere_id === f.id).length}
+                          </td>
+                          <td style={{ padding: '14px 18px', textAlign: 'right' }}>
+                            <div style={{ display: 'inline-flex', gap: 6 }}>
+                              <button
+                                type="button"
+                                onClick={() => { setEditingFiliere(f); setFiliereModalOpen(true) }}
+                                style={{
+                                  padding: '6px 12px', borderRadius: 6, border: '1px solid #bfdbfe',
+                                  background: '#eff6ff', color: '#1d4ed8', fontSize: 12, fontWeight: 600, cursor: 'pointer'
+                                }}
+                              >
+                                Modifier
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeletingFiliere(f)}
+                                style={{
+                                  padding: '6px 12px', borderRadius: 6, border: '1px solid #fecaca',
+                                  background: '#fef2f2', color: '#b91c1c', fontSize: 12, fontWeight: 600, cursor: 'pointer'
+                                }}
+                              >
+                                Supprimer
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+          {/* ── INDISPONIBILITÉS VIEW ── */}
+          {activeNav === 'indispos' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <div style={{
+                background: '#fff', borderRadius: 12, padding: '20px 24px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1px solid #e2e8f0',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                flexWrap: 'wrap', gap: 16
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <h2 style={{ margin: 0, fontSize: 20, color: '#0f2d5e', fontWeight: 700 }}>
+                      Congés & Jours libres
+                    </h2>
+                    <span style={{
+                      background: '#fef3c7', color: '#92400e', fontSize: 12, fontWeight: 700,
+                      padding: '3px 10px', borderRadius: 20, border: '1px solid #fde68a'
+                    }}>
+                      {indisponibilites.length} entrées
+                    </span>
+                  </div>
+                  <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+                    Jours / semaines / périodes libres pour un groupe, un formateur ou tous les groupes — pris en compte par le planificateur
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => { setEditingIndispo(null); setIndispoModalOpen(true) }}
+                  style={{ padding: '0 20px', height: 40, fontSize: 13, boxShadow: '0 2px 6px rgba(26,95,168,0.25)' }}
+                >
+                  + Ajouter
+                </button>
+              </div>
+
+              <div style={{
+                background: '#fff', borderRadius: 12, padding: '16px 20px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1px solid #e2e8f0',
+                display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap'
+              }}>
+                <div style={{ flex: '1 1 260px', minWidth: 200 }}>
+                  <input
+                    type="text"
+                    placeholder="Rechercher (motif, groupe, formateur...)"
+                    value={indispoSearch}
+                    onChange={e => setIndispoSearch(e.target.value)}
+                    style={{
+                      width: '100%', height: 38, padding: '0 12px', border: '1.5px solid #e2e8f0',
+                      borderRadius: 8, fontSize: 13, outline: 'none', background: '#f8fafc'
+                    }}
+                  />
+                </div>
+                <div style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b' }}>
+                  Affichage de <strong>{filteredIndisposList.length}</strong> sur {indisponibilites.length}
+                </div>
+              </div>
+
+              <div style={{
+                background: '#fff', borderRadius: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0', overflow: 'hidden'
+              }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569' }}>
+                        <th style={{ padding: '14px 18px' }}>Cible</th>
+                        <th style={{ padding: '14px 18px' }}>Période</th>
+                        <th style={{ padding: '14px 18px' }}>Détail</th>
+                        <th style={{ padding: '14px 18px' }}>Motif</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'center' }}>Actif</th>
+                        <th style={{ padding: '14px 18px', textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredIndisposList.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
+                            <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>Aucune indisponibilité</div>
+                            <div style={{ fontSize: 13, marginTop: 4 }}>Cliquez sur « + Ajouter » pour en créer une</div>
+                          </td>
+                        </tr>
+                      ) : filteredIndisposList.map(i => (
+                        <tr
+                          key={i.id}
+                          style={{ borderBottom: '1px solid #f1f5f9' }}
+                          onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                        >
+                          <td style={{ padding: '14px 18px', fontWeight: 600, color: '#0f172a' }}>
+                            {i.type_cible === 'tous' ? 'Tous les groupes' :
+                             i.type_cible === 'groupe' ? (i.groupe_code || '—') :
+                             (i.professeur_nom || '—')}
+                          </td>
+                          <td style={{ padding: '14px 18px', color: '#475569' }}>
+                            {i.type_periode_libelle || i.type_periode}
+                          </td>
+                          <td style={{ padding: '14px 18px', color: '#64748b', fontSize: 12 }}>
+                            {i.type_periode === 'jour' && `Sem. ${i.semaine_numero} — Jour ${i.jour}`}
+                            {i.type_periode === 'semaine' && `Semaine ${i.semaine_numero}`}
+                            {i.type_periode === 'periode' && `${i.date_debut} → ${i.date_fin}`}
+                          </td>
+                          <td style={{ padding: '14px 18px', color: '#475569' }}>{i.motif || '—'}</td>
+                          <td style={{ padding: '14px 18px', textAlign: 'center' }}>
+                            {i.actif ? '✓' : '—'}
+                          </td>
+                          <td style={{ padding: '14px 18px', textAlign: 'right' }}>
+                            <div style={{ display: 'inline-flex', gap: 6 }}>
+                              <button
+                                type="button"
+                                onClick={() => { setEditingIndispo(i); setIndispoModalOpen(true) }}
+                                style={{
+                                  padding: '6px 12px', borderRadius: 6, border: '1px solid #bfdbfe',
+                                  background: '#eff6ff', color: '#1d4ed8', fontSize: 12, fontWeight: 600, cursor: 'pointer'
+                                }}
+                              >
+                                Modifier
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeletingIndispo(i)}
+                                style={{
+                                  padding: '6px 12px', borderRadius: 6, border: '1px solid #fecaca',
+                                  background: '#fef2f2', color: '#b91c1c', fontSize: 12, fontWeight: 600, cursor: 'pointer'
+                                }}
+                              >
+                                Supprimer
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
       </main>
 
@@ -2778,6 +5160,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
       {profModalOpen && (
         <ProfesseurModal
           prof={editingProf}
+          salles={salles}
           onClose={() => {
             setProfModalOpen(false)
             setEditingProf(null)
@@ -2792,6 +5175,24 @@ export default function Dashboard({ role = 'admin', onLogout }) {
           loading={deletingProfLoading}
           onClose={() => setDeletingProf(null)}
           onConfirm={handleDeleteProfConfirm}
+        />
+      )}
+
+      {affectationRow && (
+        <AffectationModal
+          row={affectationRow}
+          professeurs={professeurs}
+          onClose={() => setAffectationRow(null)}
+          onSave={handleSaveAffectation}
+        />
+      )}
+
+      {deletingAffectation && (
+        <DeleteAffectationModal
+          affectation={deletingAffectation}
+          loading={deletingAffectationLoading}
+          onClose={() => setDeletingAffectation(null)}
+          onConfirm={handleDeleteAffectationConfirm}
         />
       )}
 
@@ -2813,6 +5214,72 @@ export default function Dashboard({ role = 'admin', onLogout }) {
           loading={deletingSalleLoading}
           onClose={() => setDeletingSalle(null)}
           onConfirm={handleDeleteSalleConfirm}
+        />
+      )}
+
+      {moduleModalOpen && (
+        <ModuleModal
+          module={editingModule}
+          typesSalles={typesSalles}
+          onClose={() => {
+            setModuleModalOpen(false)
+            setEditingModule(null)
+          }}
+          onSave={handleSaveModule}
+        />
+      )}
+
+      {deletingModule && (
+        <DeleteModuleModal
+          module={deletingModule}
+          loading={deletingModuleLoading}
+          onClose={() => setDeletingModule(null)}
+          onConfirm={handleDeleteModuleConfirm}
+        />
+      )}
+
+      {filiereModalOpen && (
+        <FiliereModal
+          filiere={editingFiliere}
+          secteurs={secteurs}
+          modules={modules}
+          onClose={() => {
+            setFiliereModalOpen(false)
+            setEditingFiliere(null)
+          }}
+          onSave={handleSaveFiliere}
+        />
+      )}
+
+      {deletingFiliere && (
+        <DeleteFiliereModal
+          filiere={deletingFiliere}
+          loading={deletingFiliereLoading}
+          onClose={() => setDeletingFiliere(null)}
+          onConfirm={handleDeleteFiliereConfirm}
+        />
+      )}
+
+      {indispoModalOpen && (
+        <IndisponibiliteModal
+          indispo={editingIndispo}
+          groupes={groupes}
+          professeurs={professeurs}
+          semaines={semaines}
+          onClose={() => {
+            setIndispoModalOpen(false)
+            setEditingIndispo(null)
+          }}
+          onSave={handleSaveIndispo}
+        />
+      )}
+
+      {deletingIndispo && (
+        <DeleteIndispoModal
+          indispo={deletingIndispo}
+          loading={deletingIndispoLoading}
+          onClose={() => setDeletingIndispo(null)}
+          onConfirm={handleDeleteIndispoConfirm}
         />
       )}
     </div>
