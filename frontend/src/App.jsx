@@ -7,6 +7,9 @@ import Actualites from './components/Actualites/Actualites'
 import Footer from './components/Footer/Footer'
 import Login from './components/Login/Login'
 import Dashboard from './components/Dashboard/Dashboard'
+import EspaceFormateur from './components/EspaceFormateur/EspaceFormateur'
+
+const ROLE_STORAGE_KEY = 'gestemploi_role'
 
 function App() {
   const [currentView, setCurrentView] = useState(() => {
@@ -15,7 +18,13 @@ function App() {
     if (hash === '#dashboard') return 'dashboard'
     return 'home'
   })
-  const [userRole, setUserRole] = useState(null)
+  const [userRole, setUserRole] = useState(() => {
+    try {
+      return window.localStorage.getItem(ROLE_STORAGE_KEY)
+    } catch {
+      return null
+    }
+  })
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -48,6 +57,11 @@ function App() {
 
   const handleLoginSuccess = (role) => {
     setUserRole(role)
+    try {
+      window.localStorage.setItem(ROLE_STORAGE_KEY, role)
+    } catch {
+      // Stockage indisponible : la session reste valable jusqu'au rechargement.
+    }
     window.location.hash = '#dashboard'
     setCurrentView('dashboard')
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -55,6 +69,11 @@ function App() {
 
   const handleLogout = () => {
     setUserRole(null)
+    try {
+      window.localStorage.removeItem(ROLE_STORAGE_KEY)
+    } catch {
+      // Ignorer les erreurs de stockage.
+    }
     navigateToHome()
   }
 
@@ -63,7 +82,12 @@ function App() {
   }
 
   if (currentView === 'dashboard') {
-    return <Dashboard role={userRole || 'admin'} onLogout={handleLogout} />
+    // Le profil formateur n'a accès à aucune fonction d'administration :
+    // son interface dédiée reste à construire.
+    if (userRole === 'formateur') {
+      return <EspaceFormateur onLogout={handleLogout} />
+    }
+    return <Dashboard role="admin" onLogout={handleLogout} />
   }
 
   return (

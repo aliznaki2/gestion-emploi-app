@@ -1,0 +1,127 @@
+/* =====================================================================
+   EspaceFormateur.css — écran d'attente du profil formateur
+   ===================================================================== */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+.espace-formateur {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  font-family: 'Inter', sans-serif;
+  background: #f0f4f8;
+  color: #0f172a;
+}
+
+.espace-formateur__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 28px;
+  background: linear-gradient(90deg, #0f2d5e 0%, #1a5fa8 100%);
+  color: #fff;
+}
+
+.espace-formateur__brand h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.espace-formateur__brand span {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.espace-formateur__role {
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 20px;
+  padding: 5px 14px;
+  white-space: nowrap;
+}
+
+.espace-formateur__main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+}
+
+.espace-formateur__card {
+  width: 100%;
+  max-width: 560px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  box-shadow: 0 8px 30px rgba(15, 45, 94, 0.08);
+  padding: 40px 36px;
+  text-align: center;
+}
+
+.espace-formateur__icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.espace-formateur__card h2 {
+  margin: 0 0 12px;
+  font-size: 21px;
+  font-weight: 700;
+  color: #0f2d5e;
+}
+
+.espace-formateur__card p {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: #475569;
+}
+
+.espace-formateur__note {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  padding: 14px 16px;
+  color: #92400e !important;
+  font-size: 13px !important;
+  text-align: left;
+  margin-top: 20px !important;
+}
+
+.espace-formateur__logout {
+  margin-top: 24px;
+  border: none;
+  border-radius: 10px;
+  background: #0f2d5e;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 11px 22px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.espace-formateur__logout:hover {
+  background: #1a5fa8;
+}
+
+.espace-formateur__footer {
+  padding: 18px 20px;
+  text-align: center;
+  font-size: 12px;
+  color: #64748b;
+  border-top: 1px solid #e2e8f0;
+}
