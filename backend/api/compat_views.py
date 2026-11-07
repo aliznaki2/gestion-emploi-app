@@ -20,7 +20,7 @@ from core.models import (
     Semaine, Groupe, Professeur, Salle, Creneau,
     UniteEnseignement, Filiere, Secteur, TypeSalle, Module, Seance,
     SeanceGroupe, SeanceProfesseur, AnneeScolaire, Semestre, Indisponibilite,
-    AffectationEnseignement,
+    AffectationEnseignement, Disponibilite,
 )
 from solver.services import GenerateurEmploiDuTemps
 
@@ -1126,6 +1126,122 @@ def indisponibilite_detail(request, pk):
     if request.method == 'DELETE':
         ind.delete()
         return JsonResponse({'success': True, 'message': 'Indisponibilité supprimée.'})
+
+    return _error('Méthode non autorisée.', 405)
+
+
+# ─── Disponibilités des formateurs ───────────────────────────────────────────
+ETATS_DISPONIBILITE = {Disponibilite.ETAT_DISPONIBLE, Disponibilite.ETAT_BLOQUE,
+                       Disponibilite.ETAT_PREFERE}
+
+
+def _disponibilite_data(d):
+    return {
+        'id': d.id,
+        'professeur_id': d.professeur_id,
+        'creneau_id': d.creneau_id,
+        'etat': d.etat,
+        'jour': d.creneau.jour,
+        'numero_seance': d.creneau.numero_seance,
+        'heure_debut': d.creneau.heure_debut.strftime('%H:%M'),
+        'heure_fin': d.creneau.heure_fin.strftime('%H:%M'),
+    }
+
+
+def _disponibilites_prof(prof_id):
+    qs = Disponibilite.objects.filter(professeur_id=prof_id).select_related('creneau')
+    return JsonResponse([_disponibilite_data(d) for d in qs], safe=False)
+
+
+@csrf_exempt
+def disponibilites_collection(request):
+    """GET/POST/PUT /api/disponibilites
+
+    GET  ?professeur=<id>  — disponibilités d'un formateur.
+    POST {professeur_id, creneau_id, etat} — met à jour un créneau.
+    PUT  {professeur_id, disponibilites: [{creneau_id, etat}, ...]}
+         — remplace l'ensemble des disponibilités du formateur.
+    """
+    if request.method == 'GET':
+        prof_id = _int_or_none(request.GET.get('professeur')
+                               or request.GET.get('professeur_id'))
+        if prof_id:
+            return _disponibilites_prof(prof_id)
+        qs = Disponibilite.objects.select_related('professeur', 'creneau').all()
+        return JsonResponse([_disponibilite_data(d) for d in qs], safe=False)
+
+    if request.method not in ('POST', 'PUT'):
+        return _error('Méthode non autorisée.', 405)
+
+    data = _body(request)
+    prof = _get_or_none(Professeur, _value(data, 'professeur_id', 'professeur'))
+    if not prof:
+        return _error('Formateur introuvable.')
+
+    # Remplacement global de la grille (bouton « Enregistrer »).
+    raw = data.get('disponibilites')
+    if isinstance(raw, list):
+        creneaux_valides = set(Creneau.objects.values_list('id', flat=True))
+        entrees = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            creneau_id = _int_or_none(_value(item, 'creneau_id', 'creneau'))
+            etat = str(item.get('etat') or Disponibilite.ETAT_DISPONIBLE).strip().lower()
+            if etat not in ETATS_DISPONIBILITE:
+                etat = Disponibilite.ETAT_DISPONIBLE
+            if creneau_id in creneaux_valides and etat != Disponibilite.ETAT_DISPONIBLE:
+                entrees.append(Disponibilite(professeur=prof, creneau_id=creneau_id, etat=etat))
+
+        with transaction.atomic():
+            Disponibilite.objects.filter(professeur=prof).delete()
+            if entrees:
+                Disponibilite.objects.bulk_create(entrees)
+        return _disponibilites_prof(prof.id)
+
+    # Mise à jour d'un seul créneau.
+    creneau = _get_or_none(Creneau, _value(data, 'creneau_id', 'creneau'))
+    if not creneau:
+        return _error('Créneau introuvable.')
+    etat = str(data.get('etat') or Disponibilite.ETAT_DISPONIBLE).strip().lower()
+    if etat not in ETATS_DISPONIBILITE:
+        return _error('État de disponibilité invalide.')
+
+    if etat == Disponibilite.ETAT_DISPONIBLE:
+        Disponibilite.objects.filter(professeur=prof, creneau=creneau).delete()
+        return JsonResponse({
+            'professeur_id': prof.id,
+            'creneau_id': creneau.id,
+            'etat': Disponibilite.ETAT_DISPONIBLE,
+        })
+
+    dispo, created = Disponibilite.objects.update_or_create(
+        professeur=prof, creneau=creneau, defaults={'etat': etat}
+    )
+    return JsonResponse(_disponibilite_data(dispo), status=201 if created else 200)
+
+
+@csrf_exempt
+def disponibilite_detail(request, pk):
+    dispo = Disponibilite.objects.select_related('creneau', 'professeur').filter(pk=pk).first()
+    if not dispo:
+        return _error('Disponibilité introuvable.', 404)
+
+    if request.method == 'GET':
+        return JsonResponse(_disponibilite_data(dispo))
+
+    if request.method in ('PUT', 'PATCH'):
+        data = _body(request)
+        etat = str(data.get('etat') or dispo.etat).strip().lower()
+        if etat not in ETATS_DISPONIBILITE:
+            return _error('État de disponibilité invalide.')
+        dispo.etat = etat
+        dispo.save(update_fields=['etat'])
+        return JsonResponse(_disponibilite_data(dispo))
+
+    if request.method == 'DELETE':
+        dispo.delete()
+        return JsonResponse({'success': True, 'message': 'Disponibilité supprimée.'})
 
     return _error('Méthode non autorisée.', 405)
 

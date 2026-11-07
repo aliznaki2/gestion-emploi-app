@@ -10,6 +10,7 @@ import Dashboard from './components/Dashboard/Dashboard'
 import EspaceFormateur from './components/EspaceFormateur/EspaceFormateur'
 
 const ROLE_STORAGE_KEY = 'gestemploi_role'
+const EMAIL_STORAGE_KEY = 'gestemploi_email'
 
 function App() {
   const [currentView, setCurrentView] = useState(() => {
@@ -23,6 +24,13 @@ function App() {
       return window.localStorage.getItem(ROLE_STORAGE_KEY)
     } catch {
       return null
+    }
+  })
+  const [userEmail, setUserEmail] = useState(() => {
+    try {
+      return window.localStorage.getItem(EMAIL_STORAGE_KEY) || ''
+    } catch {
+      return ''
     }
   })
 
@@ -55,10 +63,12 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const handleLoginSuccess = (role) => {
+  const handleLoginSuccess = (role, identifier = '') => {
     setUserRole(role)
+    setUserEmail(identifier)
     try {
       window.localStorage.setItem(ROLE_STORAGE_KEY, role)
+      window.localStorage.setItem(EMAIL_STORAGE_KEY, identifier)
     } catch {
       // Stockage indisponible : la session reste valable jusqu'au rechargement.
     }
@@ -69,8 +79,10 @@ function App() {
 
   const handleLogout = () => {
     setUserRole(null)
+    setUserEmail('')
     try {
       window.localStorage.removeItem(ROLE_STORAGE_KEY)
+      window.localStorage.removeItem(EMAIL_STORAGE_KEY)
     } catch {
       // Ignorer les erreurs de stockage.
     }
@@ -83,9 +95,9 @@ function App() {
 
   if (currentView === 'dashboard') {
     // Le profil formateur n'a accès à aucune fonction d'administration :
-    // son interface dédiée reste à construire.
+    // son interface dédiée regroupe ses disponibilités et son emploi du temps.
     if (userRole === 'formateur') {
-      return <EspaceFormateur onLogout={handleLogout} />
+      return <EspaceFormateur email={userEmail} onLogout={handleLogout} />
     }
     return <Dashboard role="admin" onLogout={handleLogout} />
   }

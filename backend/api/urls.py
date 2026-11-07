@@ -23,6 +23,7 @@ from .compat_views import (
     filieres_collection, filiere_detail,
     secteurs_collection, secteur_detail,
     indisponibilites_collection, indisponibilite_detail,
+    disponibilites_collection, disponibilite_detail,
     affectations_collection, affectation_detail,
 )
 
@@ -69,6 +70,8 @@ urlpatterns = [
     path('indisponibilites/<int:pk>', indisponibilite_detail, name='compat_indisponibilite_detail'),
     path('affectations', affectations_collection, name='compat_affectations'),
     path('affectations/<int:pk>', affectation_detail, name='compat_affectation_detail'),
+    path('disponibilites', disponibilites_collection, name='compat_disponibilites'),
+    path('disponibilites/<int:pk>', disponibilite_detail, name='compat_disponibilite_detail'),
 
     # ─── Emploi du temps, statistiques & actions ─────────────────────────────
     path('emploi-du-temps/<int:semaine_id>', get_emploi_du_temps_compat, name='compat_emploi_du_temps'),

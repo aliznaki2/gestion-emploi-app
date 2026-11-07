@@ -19,7 +19,7 @@ export default function Login({ onBackHome, onLoginSuccess }) {
       setIdentifier('admin@ofppt-ntic.ma')
       setPassword('Admin2026*')
     } else {
-      setIdentifier('formateur.alami@ofppt.ma')
+      setIdentifier('m.alami@ofppt.ma')
       setPassword('Formateur2026*')
     }
   }
@@ -40,7 +40,7 @@ export default function Login({ onBackHome, onLoginSuccess }) {
       setAuthSuccess(true)
       // Navigate to dashboard after short success display
       setTimeout(() => {
-        if (onLoginSuccess) onLoginSuccess(role)
+        if (onLoginSuccess) onLoginSuccess(role, identifier)
       }, 800)
     }, 900)
   }
@@ -143,7 +143,7 @@ export default function Login({ onBackHome, onLoginSuccess }) {
                 <button
                   type="button"
                   className="login-success-btn"
-                  onClick={() => onLoginSuccess ? onLoginSuccess(role) : onBackHome()}
+                  onClick={() => onLoginSuccess ? onLoginSuccess(role, identifier) : onBackHome()}
                 >
                   Accéder au tableau de bord →
                 </button>

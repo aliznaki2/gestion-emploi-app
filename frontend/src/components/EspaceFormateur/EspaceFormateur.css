@@ -1,5 +1,6 @@
 /* =====================================================================
-   EspaceFormateur.css — écran d'attente du profil formateur
+   EspaceFormateur.css — espace personnel du formateur
+   (disponibilités hebdomadaires + emploi du temps personnel)
    ===================================================================== */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
@@ -12,12 +13,14 @@
   color: #0f172a;
 }
 
+/* ─── Barre supérieure ─────────────────────────────────────────────────── */
 .espace-formateur__topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 28px;
+  flex-wrap: wrap;
+  padding: 14px 28px;
   background: linear-gradient(90deg, #0f2d5e 0%, #1a5fa8 100%);
   color: #fff;
 }
@@ -34,6 +37,37 @@
   opacity: 0.75;
 }
 
+.ef-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ef-profile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  opacity: 0.95;
+}
+
+.ef-profile select {
+  font-family: inherit;
+  font-size: 12px;
+  max-width: 230px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+}
+
+.ef-profile select option {
+  color: #0f172a;
+}
+
 .espace-formateur__role {
   font-size: 12px;
   font-weight: 600;
@@ -44,84 +78,524 @@
   white-space: nowrap;
 }
 
-.espace-formateur__main {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 40px 20px;
-}
-
-.espace-formateur__card {
-  width: 100%;
-  max-width: 560px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 16px;
-  box-shadow: 0 8px 30px rgba(15, 45, 94, 0.08);
-  padding: 40px 36px;
-  text-align: center;
-}
-
-.espace-formateur__icon {
-  width: 64px;
-  height: 64px;
-  margin: 0 auto 20px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #eff6ff;
-  color: #1d4ed8;
-}
-
-.espace-formateur__card h2 {
-  margin: 0 0 12px;
-  font-size: 21px;
-  font-weight: 700;
-  color: #0f2d5e;
-}
-
-.espace-formateur__card p {
-  margin: 0 0 12px;
-  font-size: 14px;
-  line-height: 1.65;
-  color: #475569;
-}
-
-.espace-formateur__note {
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  border-radius: 10px;
-  padding: 14px 16px;
-  color: #92400e !important;
-  font-size: 13px !important;
-  text-align: left;
-  margin-top: 20px !important;
-}
-
 .espace-formateur__logout {
-  margin-top: 24px;
-  border: none;
-  border-radius: 10px;
-  background: #0f2d5e;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 8px;
+  background: transparent;
   color: #fff;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   font-family: inherit;
-  padding: 11px 22px;
+  padding: 7px 14px;
   cursor: pointer;
   transition: background 0.2s ease;
 }
 
 .espace-formateur__logout:hover {
-  background: #1a5fa8;
+  background: rgba(255, 255, 255, 0.16);
 }
 
+/* ─── Onglets ──────────────────────────────────────────────────────────── */
+.ef-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 28px;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+  overflow-x: auto;
+}
+
+.ef-tab {
+  border: none;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: #64748b;
+  padding: 14px 18px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.ef-tab:hover {
+  color: #1a5fa8;
+}
+
+.ef-tab.active {
+  color: #0f2d5e;
+  border-bottom-color: #1a5fa8;
+}
+
+/* ─── Zone principale ──────────────────────────────────────────────────── */
+.espace-formateur__main {
+  flex: 1;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.ef-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  box-shadow: 0 8px 30px rgba(15, 45, 94, 0.06);
+  padding: 26px;
+}
+
+.ef-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.ef-card-head h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f2d5e;
+}
+
+.ef-card-head p {
+  margin: 0;
+  max-width: 640px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: #475569;
+}
+
+.ef-prof-badge {
+  display: inline-block;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  font-size: 12.5px;
+  font-weight: 600;
+  border-radius: 20px;
+  padding: 6px 14px;
+  white-space: nowrap;
+}
+
+/* ─── Alertes / messages ───────────────────────────────────────────────── */
+.ef-alert {
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+
+.ef-alert--error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+}
+
+.ef-alert--info {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+}
+
+.ef-alert--success {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #15803d;
+}
+
+/* ─── Légende ──────────────────────────────────────────────────────────── */
+.ef-legend {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: #475569;
+  margin-bottom: 14px;
+}
+
+.ef-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ef-legend-hint {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.ef-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.ef-dot--ok {
+  background: #22c55e;
+}
+
+.ef-dot--off {
+  background: #ef4444;
+}
+
+/* ─── Grille hebdomadaire ──────────────────────────────────────────────── */
+.ef-grid-wrap {
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+
+.ef-grid {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.ef-grid thead th {
+  background: #f8fafc;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 11px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: center;
+}
+
+.ef-grid-corner {
+  width: 110px;
+  text-align: left !important;
+}
+
+.ef-grid tbody th,
+.ef-grid tbody td {
+  border-bottom: 1px solid #eef2f7;
+  border-right: 1px solid #eef2f7;
+}
+
+.ef-grid tbody tr:last-child th,
+.ef-grid tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.ef-grid tbody td:last-child,
+.ef-grid thead th:last-child {
+  border-right: none;
+}
+
+.ef-grid-time {
+  text-align: left;
+  padding: 10px 12px;
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ef-grid-time span {
+  display: block;
+}
+
+.ef-grid-time small {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.ef-grid-cell {
+  padding: 6px;
+  vertical-align: top;
+  text-align: center;
+}
+
+.ef-grid-na {
+  display: block;
+  padding: 14px 0;
+  color: #cbd5e1;
+}
+
+/* ─── Créneaux cliquables ──────────────────────────────────────────────── */
+.ef-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-height: 48px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.ef-slot:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(15, 45, 94, 0.12);
+}
+
+.ef-slot--disponible {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #15803d;
+}
+
+.ef-slot--bloque {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.ef-slot-time {
+  font-size: 10.5px;
+  font-weight: 500;
+  opacity: 0.75;
+}
+
+/* ─── Actions de la carte ──────────────────────────────────────────────── */
+.ef-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.ef-quick-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ef-save-zone {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.ef-dirty {
+  font-size: 12px;
+  font-weight: 600;
+  color: #b45309;
+}
+
+.ef-btn {
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  border-radius: 9px;
+  padding: 10px 18px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+.ef-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ef-btn--primary {
+  border: 1px solid #1a5fa8;
+  background: #1a5fa8;
+  color: #fff;
+}
+
+.ef-btn--primary:hover:not(:disabled) {
+  background: #0f2d5e;
+  border-color: #0f2d5e;
+}
+
+.ef-btn--ghost {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+}
+
+.ef-btn--ghost:hover {
+  background: #f1f5f9;
+}
+
+/* ─── Emploi du temps personnel ────────────────────────────────────────── */
+.ef-week {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.ef-week select {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #0f172a;
+  cursor: pointer;
+  max-width: 320px;
+}
+
+.ef-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px 20px;
+  flex-wrap: wrap;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 11px;
+  padding: 11px 16px;
+  margin-bottom: 16px;
+  font-size: 12.5px;
+  color: #475569;
+}
+
+.ef-summary strong {
+  color: #0f2d5e;
+}
+
+.ef-summary-prof {
+  font-weight: 700;
+  color: #1a5fa8;
+}
+
+.ef-grid--planning .ef-grid-cell--planning {
+  min-width: 120px;
+  padding: 5px;
+}
+
+.ef-seance {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  border-radius: 8px;
+  border-left: 4px solid #1a5fa8;
+  background: #eff6ff;
+  padding: 8px 10px;
+  margin-bottom: 5px;
+}
+
+.ef-seance:last-child {
+  margin-bottom: 0;
+}
+
+.ef-seance--valide {
+  border-left-color: #16a34a;
+  background: #f0fdf4;
+}
+
+.ef-seance strong {
+  font-size: 12px;
+  color: #0f2d5e;
+}
+
+.ef-seance-title {
+  font-size: 11px;
+  color: #475569;
+  line-height: 1.35;
+}
+
+.ef-seance-meta {
+  font-size: 10.5px;
+  color: #64748b;
+}
+
+.ef-seance-status {
+  align-self: flex-start;
+  margin-top: 3px;
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 4px;
+  padding: 1px 6px;
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.ef-seance-status--valide {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.ef-period {
+  font-size: 12.5px;
+  color: #64748b;
+}
+
+/* ─── État vide ────────────────────────────────────────────────────────── */
+.ef-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  padding: 44px 20px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 13.5px;
+}
+
+.ef-empty strong {
+  color: #334155;
+  font-size: 15px;
+}
+
+/* ─── Pied de page ─────────────────────────────────────────────────────── */
 .espace-formateur__footer {
   padding: 18px 20px;
   text-align: center;
   font-size: 12px;
   color: #64748b;
   border-top: 1px solid #e2e8f0;
+}
+
+/* ─── Responsive ───────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .espace-formateur__topbar,
+  .ef-tabs {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .espace-formateur__main {
+    padding: 16px;
+  }
+
+  .ef-card {
+    padding: 18px;
+  }
+
+  .ef-card-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ef-save-zone {
+    justify-content: flex-end;
+  }
 }
