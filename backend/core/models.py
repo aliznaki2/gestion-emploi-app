@@ -542,15 +542,34 @@ class UniteProfesseur(models.Model):
 
 
 class AffectationEnseignement(models.Model):
-    """Affectation d'un formateur à un module pour un groupe donné.
+    """Besoin d'enseignement pour un couple (module, groupe).
 
-    Chaque formateur peut enseigner plusieurs modules, et pour chaque module
-    il peut être affecté à un ou plusieurs groupes. C'est cette affectation
-    qui pilote le choix du formateur lors de la génération.
+    Un besoin existe même lorsqu'aucun formateur n'est encore désigné : il peut
+    être « à pourvoir » ou correspondre à un vacataire resté à recruter. Dès
+    qu'un formateur est nommé, le besoin devient « affecté ». Le solveur utilise
+    ces lignes pour savoir qui peut assurer le module auprès du groupe ; sans
+    formateur, les séances sont tout de même planifiées.
+
+    Plusieurs formateurs peuvent co-enseigner un même couple, mais un seul
+    besoin ouvert (sans formateur) est autorisé par couple.
     """
+    STATUT_AFFECTE = 'affecte'
+    STATUT_A_POURVOIR = 'a_pourvoir'
+    STATUT_VACATAIRE = 'vacataire_a_recruter'
+
+    STATUT_CHOICES = [
+        (STATUT_AFFECTE, 'Formateur affecté'),
+        (STATUT_A_POURVOIR, 'Poste à pourvoir'),
+        (STATUT_VACATAIRE, 'Vacataire à recruter'),
+    ]
+
+    STATUTS_SANS_FORMATEUR = (STATUT_A_POURVOIR, STATUT_VACATAIRE)
+
     professeur = models.ForeignKey(
         Professeur,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name='affectations_enseignement',
         verbose_name=_("Formateur"),
     )
@@ -566,19 +585,53 @@ class AffectationEnseignement(models.Model):
         related_name='affectations_enseignement',
         verbose_name=_("Groupe"),
     )
+    statut = models.CharField(
+        max_length=30,
+        choices=STATUT_CHOICES,
+        default=STATUT_A_POURVOIR,
+        verbose_name=_("Statut du besoin"),
+    )
+    notes = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        verbose_name=_("Notes / commentaire"),
+    )
+    date_modification = models.DateTimeField(auto_now=True, verbose_name=_("Dernière modification"))
 
     class Meta:
-        verbose_name = _("Affectation Module / Groupe")
-        verbose_name_plural = _("Affectations Module / Groupe")
+        verbose_name = _("Besoin d'enseignement (module / groupe)")
+        verbose_name_plural = _("Besoins d'enseignement (module / groupe)")
+        ordering = ['groupe__code', 'module__code']
         constraints = [
             models.UniqueConstraint(
                 fields=['professeur', 'module', 'groupe'],
+                condition=models.Q(professeur__isnull=False),
                 name='unique_professeur_module_groupe',
-            )
+            ),
+            models.UniqueConstraint(
+                fields=['module', 'groupe'],
+                condition=models.Q(professeur__isnull=True),
+                name='unique_besoin_ouvert_module_groupe',
+            ),
         ]
 
     def __str__(self):
-        return f"{self.professeur.nom_complet} -> {self.module.code} / {self.groupe.code}"
+        if self.professeur_id:
+            return f"{self.professeur.nom_complet} -> {self.module.code} / {self.groupe.code}"
+        return f"À pourvoir : {self.module.code} / {self.groupe.code} ({self.get_statut_display()})"
+
+    @property
+    def est_pourvu(self) -> bool:
+        return self.professeur_id is not None
+
+    def save(self, *args, **kwargs):
+        # Le statut découle de la présence effective d'un formateur.
+        if self.professeur_id:
+            self.statut = self.STATUT_AFFECTE
+        elif self.statut not in self.STATUTS_SANS_FORMATEUR:
+            self.statut = self.STATUT_A_POURVOIR
+        super().save(*args, **kwargs)
 
 
 class Indisponibilite(models.Model):

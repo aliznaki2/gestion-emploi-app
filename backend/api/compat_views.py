@@ -12,7 +12,7 @@ import unicodedata
 from datetime import date as _date_cls
 
 from django.db import IntegrityError, transaction
-from django.db.models import Count, ProtectedError
+from django.db.models import Count, F, ProtectedError
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -213,7 +213,12 @@ def _sync_affectations(prof, data):
     )
     prof.affectations_enseignement.all().delete()
     AffectationEnseignement.objects.bulk_create([
-        AffectationEnseignement(professeur=prof, module_id=module_id, groupe_id=groupe_id)
+        AffectationEnseignement(
+            professeur=prof,
+            module_id=module_id,
+            groupe_id=groupe_id,
+            statut=AffectationEnseignement.STATUT_AFFECTE,
+        )
         for module_id, groupe_id in sorted(set(couples))
         if module_id in valid_modules and groupe_id in valid_groupes
     ], ignore_conflicts=True)
@@ -225,16 +230,37 @@ def _recompute_prof_modules(prof):
     Les modules enseignés ne sont plus saisis dans la fiche formateur : ils
     découlent des couples (module, groupe) définis dans l'onglet Affectations.
     """
-    module_ids = prof.affectations_enseignement.values_list('module_id', flat=True)
+    if prof is None:
+        return
+    module_ids = prof.affectations_enseignement.filter(
+        professeur__isnull=False
+    ).values_list('module_id', flat=True)
     prof.modules.set(Module.objects.filter(id__in=module_ids))
 
 
+def _statut_besoin(value, prof):
+    """Statut cohérent avec la présence ou l'absence d'un formateur."""
+    if prof is not None:
+        return AffectationEnseignement.STATUT_AFFECTE
+    if value in (
+        AffectationEnseignement.STATUT_A_POURVOIR,
+        AffectationEnseignement.STATUT_VACATAIRE,
+    ):
+        return value
+    return AffectationEnseignement.STATUT_A_POURVOIR
+
+
 def _affectation_data(a):
+    prof = a.professeur
     return {
         'id': a.id,
         'professeur_id': a.professeur_id,
-        'professeur_nom': a.professeur.nom_complet,
-        'matricule': a.professeur.matricule,
+        'professeur_nom': prof.nom_complet if prof else None,
+        'matricule': prof.matricule if prof else None,
+        'statut': a.statut,
+        'statut_label': a.get_statut_display(),
+        'est_pourvu': bool(prof),
+        'notes': a.notes or '',
         'module_id': a.module_id,
         'module_code': a.module.code,
         'module_intitule': a.module.intitule,
@@ -785,6 +811,19 @@ def professeur_detail(request, pk):
                 'success': True,
                 'message': f'Le formateur {prof.nom_complet} est utilisé : il a été archivé (désactivé).',
             })
+        # Ses besoins redeviennent des postes à pourvoir plutôt que d'être perdus.
+        for affectation in AffectationEnseignement.objects.filter(professeur=prof):
+            doublon = AffectationEnseignement.objects.filter(
+                module_id=affectation.module_id,
+                groupe_id=affectation.groupe_id,
+                professeur__isnull=True,
+            ).exclude(pk=affectation.pk).exists()
+            if doublon:
+                affectation.delete()
+            else:
+                affectation.professeur = None
+                affectation.statut = AffectationEnseignement.STATUT_A_POURVOIR
+                affectation.save()
         prof.delete()
         return JsonResponse({'success': True, 'message': f'Formateur {prof.nom_complet} supprimé.'})
 
@@ -1498,24 +1537,35 @@ def disponibilite_detail(request, pk):
 # ─── CRUD : Affectations Module / Groupe / Formateur ─────────────────────────
 @csrf_exempt
 def affectations_collection(request):
-    """GET /api/affectations — liste des affectations (module, groupe, formateur).
+    """GET /api/affectations — besoins d'enseignement (module, groupe, formateur).
 
-    POST /api/affectations — affecte un formateur à un module pour un groupe.
+    POST /api/affectations — crée ou met à jour un besoin. Le formateur est
+    facultatif : sans lui, le besoin est « à pourvoir » ou « vacataire à recruter ».
     """
     if request.method == 'GET':
         qs = AffectationEnseignement.objects.select_related(
             'professeur', 'module', 'groupe__filiere'
-        ).order_by('groupe__code', 'module__code', 'professeur__nom_complet')
+        ).order_by(
+            'groupe__code', 'module__code',
+            F('professeur__nom_complet').asc(nulls_last=True),
+        )
 
         prof_id = _int_or_none(request.GET.get('professeur_id'))
         module_id = _int_or_none(request.GET.get('module_id'))
         groupe_id = _int_or_none(request.GET.get('groupe_id'))
+        statut = request.GET.get('statut')
         if prof_id:
             qs = qs.filter(professeur_id=prof_id)
         if module_id:
             qs = qs.filter(module_id=module_id)
         if groupe_id:
             qs = qs.filter(groupe_id=groupe_id)
+        if statut in (
+            AffectationEnseignement.STATUT_AFFECTE,
+            AffectationEnseignement.STATUT_A_POURVOIR,
+            AffectationEnseignement.STATUT_VACATAIRE,
+        ):
+            qs = qs.filter(statut=statut)
 
         return JsonResponse([_affectation_data(a) for a in qs], safe=False)
 
@@ -1523,19 +1573,67 @@ def affectations_collection(request):
         return _error('Méthode non autorisée.', 405)
 
     data = _body(request)
-    prof = _get_or_none(Professeur, _value(data, 'professeur_id', 'professeur'))
     module = _get_or_none(Module, _value(data, 'module_id', 'module'))
     groupe = _get_or_none(Groupe, _value(data, 'groupe_id', 'groupe'))
-    if not prof:
-        return _error('Formateur introuvable.')
     if not module:
         return _error('Module introuvable.')
     if not groupe:
         return _error('Groupe introuvable.')
 
-    affectation, created = AffectationEnseignement.objects.get_or_create(
-        professeur=prof, module=module, groupe=groupe
-    )
+    raw_prof = _value(data, 'professeur_id', 'professeur')
+    prof = _get_or_none(Professeur, raw_prof)
+    if raw_prof not in (None, '') and not prof:
+        return _error('Formateur introuvable.')
+
+    statut = _statut_besoin(data.get('statut'), prof)
+    notes = str(data.get('notes') or '').strip()[:255]
+
+    if prof:
+        if AffectationEnseignement.objects.filter(
+            module=module, groupe=groupe, professeur=prof
+        ).exists():
+            return _error('Ce formateur est déjà affecté à ce module pour ce groupe.')
+
+        # Un besoin ouvert existant est complété plutôt que dupliqué.
+        affectation = AffectationEnseignement.objects.filter(
+            module=module, groupe=groupe, professeur__isnull=True
+        ).first()
+        if affectation:
+            affectation.professeur = prof
+            affectation.statut = AffectationEnseignement.STATUT_AFFECTE
+            if notes:
+                affectation.notes = notes
+            affectation.save()
+            created = False
+        else:
+            affectation = AffectationEnseignement.objects.create(
+                professeur=prof,
+                module=module,
+                groupe=groupe,
+                statut=AffectationEnseignement.STATUT_AFFECTE,
+                notes=notes,
+            )
+            created = True
+    else:
+        affectation = AffectationEnseignement.objects.filter(
+            module=module, groupe=groupe, professeur__isnull=True
+        ).first()
+        if affectation:
+            affectation.statut = statut
+            if notes:
+                affectation.notes = notes
+            affectation.save()
+            created = False
+        else:
+            affectation = AffectationEnseignement.objects.create(
+                professeur=None,
+                module=module,
+                groupe=groupe,
+                statut=statut,
+                notes=notes,
+            )
+            created = True
+
     _recompute_prof_modules(prof)
     return JsonResponse(
         _affectation_data(affectation),
@@ -1556,26 +1654,49 @@ def affectation_detail(request, pk):
 
     if request.method in ('PUT', 'PATCH'):
         data = _body(request)
-        prof = _get_or_none(Professeur, _value(data, 'professeur_id', 'professeur')) \
-            or affectation.professeur
         module = _get_or_none(Module, _value(data, 'module_id', 'module')) \
             or affectation.module
         groupe = _get_or_none(Groupe, _value(data, 'groupe_id', 'groupe')) \
             or affectation.groupe
 
-        doublon = AffectationEnseignement.objects.filter(
-            professeur=prof, module=module, groupe=groupe
-        ).exclude(pk=affectation.pk).exists()
-        if doublon:
-            return _error('Cette affectation existe déjà.')
+        # La présence de la clé professeur_id est significative : une valeur
+        # nulle demande explicitement de retirer le formateur du besoin.
+        prof_cle_presente = ('professeur_id' in data) or ('professeur' in data)
+        if prof_cle_presente:
+            raw_prof = data.get('professeur_id', data.get('professeur'))
+            if raw_prof in (None, ''):
+                prof = None
+            else:
+                prof = _get_or_none(Professeur, raw_prof)
+                if not prof:
+                    return _error('Formateur introuvable.')
+        else:
+            prof = affectation.professeur
+
+        statut = _statut_besoin(
+            data.get('statut', affectation.statut),
+            prof,
+        )
+        notes = str(data.get('notes', affectation.notes) or '').strip()[:255]
+
+        autres = AffectationEnseignement.objects.exclude(pk=affectation.pk).filter(
+            module=module, groupe=groupe
+        )
+        if prof and autres.filter(professeur=prof).exists():
+            return _error('Ce formateur est déjà affecté à ce module pour ce groupe.')
+        if not prof and autres.filter(professeur__isnull=True).exists():
+            return _error('Un besoin à pourvoir existe déjà pour ce couple module / groupe.')
 
         ancien_prof = affectation.professeur
         affectation.professeur = prof
         affectation.module = module
         affectation.groupe = groupe
+        affectation.statut = statut
+        affectation.notes = notes
         affectation.save()
+
         _recompute_prof_modules(prof)
-        if ancien_prof.pk != prof.pk:
+        if ancien_prof and (not prof or ancien_prof.pk != prof.pk):
             _recompute_prof_modules(ancien_prof)
         affectation.refresh_from_db()
         return JsonResponse(_affectation_data(affectation))
