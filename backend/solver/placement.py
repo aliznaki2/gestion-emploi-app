@@ -51,6 +51,7 @@ class ModelePlacement:
     P_TROU_GROUPE = 700     # Heure creuse (trou) dans l'emploi du temps d'un groupe
     P_TROU_PROF = 150       # Heure creuse pour un formateur
     P_EFM_JOUR = 5000       # EFM placé hors de la date d'EFM prévue
+    P_PREF = 80             # Bonus (coût négatif) pour un créneau préféré honoré
 
     def __init__(
         self,
@@ -415,13 +416,18 @@ class ModelePlacement:
                     model_time.Add(occ(2) + occ(4) - occ(3) <= 1 + hole_s3)
                     penalites_temps.append(self.P_TROU_PROF * hole_s3)
 
-        # Pénalité créneau préféré pour les formateurs
+        # Bonus pour les créneaux préférés des formateurs.
+        # Un coût négatif dans l'objectif encourage le solveur à y placer des
+        # séances, sans jamais rendre une solution infaisable (contrainte souple).
         for p in self.professeurs:
             s_ids = prof_seances_map.get(p.id, [])
+            if not s_ids:
+                continue
             for c in self.creneaux:
-                etat = self.disponibilites.get((p.id, c.id), 'disponible')
-                if etat == 'prefere':
-                    pass  # bonus implicite
+                if self.disponibilites.get((p.id, c.id)) == 'prefere':
+                    penalites_temps.append(
+                        -self.P_PREF * prof_occ.get((p.id, c.id), 0)
+                    )
 
         model_time.Minimize(sum(penalites_temps))
 
