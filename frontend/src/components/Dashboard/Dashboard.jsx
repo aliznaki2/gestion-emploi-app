@@ -13,6 +13,22 @@ const JOURS = [
   { id: 6, nom: 'Samedi' },
 ]
 
+const CHAMPS_PROFIL_LABELS = {
+  email: 'Email',
+  telephone: 'Téléphone',
+  statut: 'Statut',
+  heures_max_semaine: 'Heures max / semaine',
+  salle_preferee_id: 'Salle préférée',
+  salle_preferee_matin_id: 'Salle préférée (matin)',
+  salle_preferee_apm_id: 'Salle préférée (après-midi)',
+}
+
+const STATUTS_DEMANDE_PROFIL = {
+  en_attente: 'En attente',
+  approuvee: 'Approuvée',
+  refusee: 'Refusée',
+}
+
 // Slot horaires: Lundi-Jeudi & Samedi: 08h00-10h30, 10h30-13h00, 13h30-16h00, 16h00-18h30
 // Vendredi: 08h00-10h30, 10h30-12h30, 14h30-16h30, 16h30-18h30
 const getSlotHoraire = (jourId, seanceNum) => {
@@ -2219,6 +2235,11 @@ export default function Dashboard({ role = 'admin', onLogout }) {
   const [secteurs, setSecteurs] = useState([])
   const [stats, setStats] = useState(null)
 
+  // Demandes de modification de profil formateur
+  const [demandesProfil, setDemandesProfil] = useState([])
+  const [commentairesDemandes, setCommentairesDemandes] = useState({})
+  const [traitementDemande, setTraitementDemande] = useState(null)
+
   // Filters
   const [selectedSectionFilter, setSelectedSectionFilter] = useState('all')
   const [searchGroupe, setSearchGroupe] = useState('')
@@ -2305,7 +2326,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
           sw = await apiFetch(`${API}/semaines`)
         }
 
-        const [g, p, sl, cr, u, f, ts, hc, m, sec, ind, aff] = await Promise.all([
+        const [g, p, sl, cr, u, f, ts, hc, m, sec, ind, aff, dp] = await Promise.all([
           apiFetch(`${API}/groupes`),
           apiFetch(`${API}/professeurs`),
           apiFetch(`${API}/salles`),
@@ -2318,6 +2339,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
           apiFetch(`${API}/secteurs`).catch(() => []),
           apiFetch(`${API}/indisponibilites`).catch(() => []),
           apiFetch(`${API}/affectations`).catch(() => []),
+          apiFetch(`${API}/demandes-profil`).catch(() => []),
         ])
         setSemaines(sw)
         setGroupes(g)
@@ -2331,6 +2353,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
         setSecteurs(sec)
         setIndisponibilites(ind)
         setAffectations(aff)
+        setDemandesProfil(Array.isArray(dp) ? dp : [])
         setDbStatus(hc.status)
         if (sw.length > 0) setSelectedSemaine(sw[0])
       } catch (e) {
@@ -2621,6 +2644,72 @@ export default function Dashboard({ role = 'admin', onLogout }) {
       return matchSearch && matchFiliere && matchStatut
     })
   }, [affectationRows, affectationSearch, affectationFiliereFilter, affectationStatutFilter])
+
+  // ─── Demandes de modification de profil ────────────────────────────────────
+  const nomSalleProfil = (id) => {
+    if (!id) return 'Aucune'
+    const salle = salles.find(s => String(s.id) === String(id))
+    return salle?.nom || `Salle #${id}`
+  }
+
+  const valeurProfilAffichee = (cle, valeur) => {
+    if (cle.startsWith('salle_')) return nomSalleProfil(valeur)
+    if (cle === 'heures_max_semaine') {
+      return valeur === null || valeur === undefined || valeur === '' ? '—' : `${valeur} h`
+    }
+    if (cle === 'statut') return valeur === 'vacataire' ? 'Vacataire' : 'Permanent'
+    return valeur || '—'
+  }
+
+  const changementsDemandeProfil = (demande) => {
+    const donnees = demande?.donnees || {}
+    const actuel = demande?.actuel || {}
+    return Object.entries(donnees)
+      .map(([cle, apres]) => ({
+        cle,
+        label: CHAMPS_PROFIL_LABELS[cle] || cle,
+        avant: valeurProfilAffichee(cle, actuel[cle]),
+        apres: valeurProfilAffichee(cle, apres),
+      }))
+      .filter(changement => changement.avant !== changement.apres)
+  }
+
+  const demandesProfilEnAttente = useMemo(
+    () => demandesProfil.filter(d => d.statut === 'en_attente'),
+    [demandesProfil]
+  )
+
+  const demandesProfilTraitees = useMemo(
+    () => demandesProfil.filter(d => d.statut !== 'en_attente'),
+    [demandesProfil]
+  )
+
+  const traiterDemandeProfil = async (demande, decision) => {
+    setTraitementDemande(demande.id)
+    try {
+      const res = await apiFetch(
+        `${API}/demandes-profil/${demande.id}/${decision === 'approuvee' ? 'approuver' : 'refuser'}`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            commentaire_admin: (commentairesDemandes[demande.id] || '').trim(),
+          }),
+        }
+      )
+      setDemandesProfil(prev => prev.map(d => (d.id === demande.id ? res.demande : d)))
+      if (res.professeur) {
+        setProfesseurs(prev => prev.map(p => (p.id === res.professeur.id ? res.professeur : p)))
+      }
+      addToast(
+        decision === 'approuvee' ? 'Demande de profil approuvée.' : 'Demande de profil refusée.',
+        'success'
+      )
+    } catch (e) {
+      addToast(e.message, 'error')
+    } finally {
+      setTraitementDemande(null)
+    }
+  }
 
   const handleSaveAffectation = (saved) => {
     setAffectations(prev => (
@@ -2990,6 +3079,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
             { id: 'groupes', label: 'Groupes' },
             { id: 'profs',   label: 'Formateurs' },
             { id: 'affectations', label: 'Affectations' },
+            { id: 'demandes', label: 'Demandes profil' },
             { id: 'salles',  label: 'Salles' },
             { id: 'modules', label: 'Modules' },
             { id: 'filieres', label: 'Filières' },
@@ -3025,6 +3115,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
             {activeNav === 'groupes' && 'Gestion des Groupes'}
             {activeNav === 'profs'   && 'Gestion des Formateurs'}
             {activeNav === 'affectations' && 'Affectations Groupe + Module'}
+        {activeNav === 'demandes' && 'Validation des profils formateurs'}
             {activeNav === 'salles'  && 'Salles et Locaux'}
             {activeNav === 'modules' && 'Gestion des Modules'}
             {activeNav === 'filieres' && 'Gestion des Filières'}
@@ -4323,6 +4414,244 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── DEMANDES PROFIL VIEW ── */}
+          {activeNav === 'demandes' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <div style={{
+                background: '#fff',
+                borderRadius: 12,
+                padding: '20px 24px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 16
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <h2 style={{ margin: 0, fontSize: 20, color: '#0f2d5e', fontWeight: 700 }}>
+                      Demandes de modification de profil
+                    </h2>
+                    <span style={{
+                      background: '#fef3c7',
+                      color: '#92400e',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      borderRadius: 20,
+                      border: '1px solid #fde68a'
+                    }}>
+                      {demandesProfilEnAttente.length} en attente
+                    </span>
+                  </div>
+                  <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+                    Les formateurs envoient leurs demandes depuis « Mon Profil ». Validez ou refusez chaque changement.
+                  </p>
+                </div>
+                <div style={{ fontSize: 12, color: '#64748b', textAlign: 'right', lineHeight: 1.6 }}>
+                  <strong style={{ color: '#0f2d5e' }}>{demandesProfil.length}</strong> demande{demandesProfil.length > 1 ? 's' : ''} au total
+                  <br />
+                  <strong style={{ color: '#b45309' }}>{demandesProfilEnAttente.length}</strong> à traiter
+                </div>
+              </div>
+
+              {demandesProfilEnAttente.length === 0 ? (
+                <div style={{
+                  background: '#f8fafc',
+                  border: '1px dashed #cbd5e1',
+                  borderRadius: 12,
+                  padding: '40px 20px',
+                  textAlign: 'center',
+                  fontSize: 13.5,
+                  color: '#64748b'
+                }}>
+                  <strong style={{ display: 'block', color: '#334155', fontSize: 15, marginBottom: 4 }}>
+                    Aucune demande en attente
+                  </strong>
+                  Les nouvelles demandes des formateurs apparaîtront ici.
+                </div>
+              ) : (
+                demandesProfilEnAttente.map(demande => {
+                  const changements = changementsDemandeProfil(demande)
+                  const enCours = traitementDemande === demande.id
+                  return (
+                    <div key={demande.id} style={{
+                      background: '#fff',
+                      borderRadius: 12,
+                      border: '1px solid #fde68a',
+                      padding: '18px 22px',
+                      boxShadow: '0 1px 4px rgba(0,0,0,0.06)'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
+                        <div>
+                          <h3 style={{ margin: 0, fontSize: 15, color: '#0f2d5e' }}>
+                            {demande.professeur_nom}
+                          </h3>
+                          <p style={{ margin: '3px 0 0', fontSize: 12, color: '#64748b' }}>
+                            Matricule {demande.matricule || '—'} · demandé le{' '}
+                            {demande.date_demande
+                              ? new Date(demande.date_demande).toLocaleDateString('fr-MA')
+                              : '—'}
+                          </p>
+                        </div>
+                        <span style={{
+                          alignSelf: 'flex-start',
+                          background: '#fef3c7',
+                          color: '#92400e',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          padding: '2px 10px',
+                          borderRadius: 20,
+                          border: '1px solid #fde68a',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          En attente
+                        </span>
+                      </div>
+
+                      <ul style={{ listStyle: 'none', margin: '0 0 12px', padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {changements.length === 0 ? (
+                          <li style={{ fontSize: 12.5, color: '#64748b' }}>
+                            Aucun changement détecté.
+                          </li>
+                        ) : (
+                          changements.map(changement => (
+                            <li key={changement.cle} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12.5 }}>
+                              <span style={{ minWidth: 160, fontWeight: 700, color: '#334155' }}>
+                                {changement.label}
+                              </span>
+                              <span style={{ color: '#b91c1c', textDecoration: 'line-through' }}>
+                                {changement.avant}
+                              </span>
+                              <span style={{ color: '#94a3b8' }}>→</span>
+                              <span style={{ fontWeight: 700, color: '#15803d' }}>
+                                {changement.apres}
+                              </span>
+                            </li>
+                          ))
+                        )}
+                      </ul>
+
+                      {demande.commentaire_formateur && (
+                        <p style={{ margin: '0 0 12px', fontSize: 12.5, color: '#475569' }}>
+                          <strong>Motif :</strong> {demande.commentaire_formateur}
+                        </p>
+                      )}
+
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12.5, color: '#334155' }}>
+                        <span style={{ fontWeight: 600 }}>Commentaire de l'administration (optionnel)</span>
+                        <textarea
+                          rows={2}
+                          value={commentairesDemandes[demande.id] || ''}
+                          onChange={e => setCommentairesDemandes(prev => ({ ...prev, [demande.id]: e.target.value }))}
+                          placeholder="Motif de la décision…"
+                          style={{
+                            border: '1px solid #cbd5e1',
+                            borderRadius: 8,
+                            padding: '7px 10px',
+                            fontFamily: 'inherit',
+                            fontSize: 13,
+                            resize: 'vertical'
+                          }}
+                        />
+                      </label>
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          disabled={enCours}
+                          onClick={() => traiterDemandeProfil(demande, 'refusee')}
+                        >
+                          {enCours ? 'Traitement…' : 'Refuser'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          disabled={enCours}
+                          onClick={() => traiterDemandeProfil(demande, 'approuvee')}
+                        >
+                          {enCours ? 'Traitement…' : 'Approuver'}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+
+              <div style={{
+                background: '#fff',
+                borderRadius: 12,
+                border: '1px solid #e2e8f0',
+                padding: '18px 22px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)'
+              }}>
+                <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#0f2d5e' }}>Historique</h3>
+                {demandesProfilTraitees.length === 0 ? (
+                  <p style={{ margin: 0, fontSize: 12.5, color: '#64748b' }}>
+                    Aucune demande traitée pour le moment.
+                  </p>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                      <thead>
+                        <tr>
+                          {['Formateur', 'Date', 'Statut', 'Modifications', 'Commentaire'].map(label => (
+                            <th key={label} style={{
+                              textAlign: 'left',
+                              padding: '10px 12px',
+                              borderBottom: '1px solid #e2e8f0',
+                              color: '#64748b',
+                              fontSize: 11.5,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.03em'
+                            }}>
+                              {label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {demandesProfilTraitees.map(demande => (
+                          <tr key={demande.id}>
+                            <td style={{ padding: '10px 12px', borderBottom: '1px solid #eef2f7', color: '#0f2d5e', fontWeight: 600 }}>
+                              {demande.professeur_nom}
+                            </td>
+                            <td style={{ padding: '10px 12px', borderBottom: '1px solid #eef2f7', color: '#475569' }}>
+                              {demande.date_traitement
+                                ? new Date(demande.date_traitement).toLocaleDateString('fr-MA')
+                                : '—'}
+                            </td>
+                            <td style={{ padding: '10px 12px', borderBottom: '1px solid #eef2f7' }}>
+                              <span style={{
+                                background: demande.statut === 'approuvee' ? '#dcfce7' : '#fee2e2',
+                                color: demande.statut === 'approuvee' ? '#15803d' : '#b91c1c',
+                                fontSize: 11,
+                                fontWeight: 700,
+                                padding: '2px 9px',
+                                borderRadius: 20
+                              }}>
+                                {STATUTS_DEMANDE_PROFIL[demande.statut] || demande.statut}
+                              </span>
+                            </td>
+                            <td style={{ padding: '10px 12px', borderBottom: '1px solid #eef2f7', color: '#475569', fontSize: 12.5 }}>
+                              {changementsDemandeProfil(demande).map(c => `${c.label} : ${c.avant} → ${c.apres}`).join(' · ') || '—'}
+                            </td>
+                            <td style={{ padding: '10px 12px', borderBottom: '1px solid #eef2f7', color: '#475569', fontSize: 12.5 }}>
+                              {demande.commentaire_admin || '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
           )}

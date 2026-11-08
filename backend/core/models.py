@@ -290,6 +290,8 @@ class Professeur(models.Model):
         related_name='professeur',
         verbose_name=_("Compte Utilisateur lié"),
     )
+    email = models.EmailField(blank=True, default='', verbose_name=_("Email"))
+    telephone = models.CharField(max_length=20, blank=True, default='', verbose_name=_("Téléphone"))
     statut = models.CharField(max_length=20, choices=STATUT_CHOICES, default=STATUT_PERMANENT, verbose_name=_("Statut"))
     heures_max_semaine = models.DecimalField(max_digits=4, decimal_places=1, default=30.0, verbose_name=_("Heures Max / Semaine"))
     taux_presence = models.FloatField(default=1.0, verbose_name=_("Taux de présence (0 à 1)"))
@@ -414,6 +416,50 @@ class Disponibilite(models.Model):
 
     def __str__(self):
         return f"{self.professeur.nom_complet} @ {self.creneau} : {self.get_etat_display()}"
+
+
+# ─── 8 bis. Demandes de modification de profil ────────────────────────────────
+class DemandeModificationProfil(models.Model):
+    """Demande de modification de la fiche formateur, validée par l'administration."""
+    STATUT_EN_ATTENTE = 'en_attente'
+    STATUT_APPROUVEE = 'approuvee'
+    STATUT_REFUSEE = 'refusee'
+
+    STATUT_CHOICES = [
+        (STATUT_EN_ATTENTE, 'En attente'),
+        (STATUT_APPROUVEE, 'Approuvée'),
+        (STATUT_REFUSEE, 'Refusée'),
+    ]
+
+    professeur = models.ForeignKey(
+        Professeur,
+        on_delete=models.CASCADE,
+        related_name='demandes_profil',
+        verbose_name=_("Formateur"),
+    )
+    donnees = models.JSONField(default=dict, verbose_name=_("Modifications demandées"))
+    donnees_avant = models.JSONField(default=dict, verbose_name=_("Valeurs avant demande"))
+    statut = models.CharField(max_length=20, choices=STATUT_CHOICES, default=STATUT_EN_ATTENTE, verbose_name=_("Statut"))
+    commentaire_formateur = models.TextField(blank=True, default='', verbose_name=_("Commentaire du formateur"))
+    commentaire_admin = models.TextField(blank=True, default='', verbose_name=_("Commentaire de l'administration"))
+    date_demande = models.DateTimeField(auto_now_add=True, verbose_name=_("Date de la demande"))
+    date_traitement = models.DateTimeField(null=True, blank=True, verbose_name=_("Date de traitement"))
+    traite_par = models.ForeignKey(
+        Utilisateur,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='demandes_profil_traitees',
+        verbose_name=_("Traitée par"),
+    )
+
+    class Meta:
+        verbose_name = _("Demande de modification de profil")
+        verbose_name_plural = _("Demandes de modification de profil")
+        ordering = ['-date_demande']
+
+    def __str__(self):
+        return f"{self.professeur.nom_complet} — {self.get_statut_display()}"
 
 
 # ─── 9. Unités d'Enseignement & Volumes Horaires ──────────────────────────────

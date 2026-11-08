@@ -134,7 +134,8 @@ class ProfesseurSerializer(serializers.ModelSerializer):
     class Meta:
         model = Professeur
         fields = [
-            'id', 'matricule', 'nom_complet', 'utilisateur', 'statut',
+            'id', 'matricule', 'nom_complet', 'utilisateur', 'email', 'telephone',
+            'statut',
             'heures_max_semaine', 'taux_presence', 'salle_preferee',
             'salle_preferee_nom', 'salle_preferee_matin', 'salle_preferee_matin_nom',
             'salle_preferee_apm', 'salle_preferee_apm_nom', 'actif', 'modules',

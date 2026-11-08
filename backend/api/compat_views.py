@@ -14,13 +14,16 @@ from datetime import date as _date_cls
 from django.db import IntegrityError, transaction
 from django.db.models import Count, ProtectedError
 from django.http import JsonResponse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 
 from core.models import (
     Semaine, Groupe, Professeur, Salle, Creneau,
     UniteEnseignement, Filiere, Secteur, TypeSalle, Module, Seance,
     SeanceGroupe, SeanceProfesseur, AnneeScolaire, Semestre, Indisponibilite,
-    AffectationEnseignement, Disponibilite,
+    AffectationEnseignement, Disponibilite, DemandeModificationProfil,
 )
 from solver.services import GenerateurEmploiDuTemps
 
@@ -244,9 +247,11 @@ def _affectation_data(a):
 
 
 def _professeur_data(p):
-    email = ''
+    email = p.email or ''
+    telephone = p.telephone or ''
     if getattr(p, 'utilisateur', None):
-        email = p.utilisateur.email or ''
+        email = email or (p.utilisateur.email or '')
+        telephone = telephone or (p.utilisateur.telephone or '')
     modules = list(p.modules.all())
     affectations = [
         {'module_id': a.module_id, 'groupe_id': a.groupe_id}
@@ -257,6 +262,7 @@ def _professeur_data(p):
         'matricule': p.matricule,
         'nom_complet': p.nom_complet,
         'email': email,
+        'telephone': telephone,
         'statut': p.statut,
         'taux_presence': round(float(p.taux_presence or 0) * 100, 1),
         'heures_max_semaine': float(p.heures_max_semaine) if p.heures_max_semaine is not None else None,
@@ -274,6 +280,134 @@ def _professeur_data(p):
         ],
         'affectations': affectations,
     }
+
+
+PROFIL_CHAMPS_SALLES = (
+    ('salle_preferee_id', 'salle_preferee'),
+    ('salle_preferee_matin_id', 'salle_preferee_matin'),
+    ('salle_preferee_apm_id', 'salle_preferee_apm'),
+)
+
+
+def _valeurs_profil(prof):
+    """Valeurs actuelles de la fiche formateur (pour l'affichage et les diffs)."""
+    email = prof.email or ''
+    telephone = prof.telephone or ''
+    if prof.utilisateur_id:
+        utilisateur = prof.utilisateur
+        email = email or (utilisateur.email or '')
+        telephone = telephone or (utilisateur.telephone or '')
+    return {
+        'email': email,
+        'telephone': telephone,
+        'statut': prof.statut,
+        'heures_max_semaine': float(prof.heures_max_semaine) if prof.heures_max_semaine is not None else None,
+        'salle_preferee_id': prof.salle_preferee_id,
+        'salle_preferee_nom': prof.salle_preferee.nom if prof.salle_preferee else None,
+        'salle_preferee_matin_id': prof.salle_preferee_matin_id,
+        'salle_preferee_matin_nom': prof.salle_preferee_matin.nom if prof.salle_preferee_matin else None,
+        'salle_preferee_apm_id': prof.salle_preferee_apm_id,
+        'salle_preferee_apm_nom': prof.salle_preferee_apm.nom if prof.salle_preferee_apm else None,
+    }
+
+
+def _normaliser_donnees_profil(data):
+    """Valide les champs modifiables d'une demande de profil.
+
+    Retourne ``(donnees, message_erreur)``.  Seuls les champs présents dans le
+    corps de la requête sont conservés, afin de ne pas écraser les autres.
+    """
+    donnees = {}
+
+    if 'email' in data:
+        email = str(data.get('email') or '').strip()
+        if email:
+            try:
+                validate_email(email)
+            except DjangoValidationError:
+                return None, "L'adresse email n'est pas valide."
+        donnees['email'] = email
+
+    if 'telephone' in data:
+        telephone = str(data.get('telephone') or '').strip()
+        if len(telephone) > 20:
+            return None, 'Le numéro de téléphone ne doit pas dépasser 20 caractères.'
+        donnees['telephone'] = telephone
+
+    if 'statut' in data:
+        statut = str(data.get('statut') or '').strip().lower()
+        if statut not in (Professeur.STATUT_PERMANENT, Professeur.STATUT_VACATAIRE):
+            return None, 'Le statut doit être « permanent » ou « vacataire ».'
+        donnees['statut'] = statut
+
+    if 'heures_max_semaine' in data:
+        try:
+            heures = float(data.get('heures_max_semaine') or 0)
+        except (TypeError, ValueError):
+            return None, 'Le nombre d’heures maximales est invalide.'
+        if heures < 0 or heures > 60:
+            return None, 'Le nombre d’heures maximales doit être compris entre 0 et 60.'
+        donnees['heures_max_semaine'] = heures
+
+    for cle, libelle in PROFIL_CHAMPS_SALLES:
+        if cle not in data:
+            continue
+        valeur = data.get(cle)
+        if valeur in (None, '', 0, '0'):
+            donnees[cle] = None
+            continue
+        salle_id = _int_or_none(valeur)
+        salle = _get_or_none(Salle, salle_id) if salle_id else None
+        if not salle:
+            return None, 'La salle sélectionnée est introuvable.'
+        donnees[cle] = salle.id
+
+    return donnees, None
+
+
+def _demande_profil_data(demande):
+    return {
+        'id': demande.id,
+        'professeur_id': demande.professeur_id,
+        'professeur_nom': demande.professeur.nom_complet,
+        'matricule': demande.professeur.matricule,
+        'donnees': demande.donnees or {},
+        'actuel': demande.donnees_avant or _valeurs_profil(demande.professeur),
+        'statut': demande.statut,
+        'commentaire_formateur': demande.commentaire_formateur,
+        'commentaire_admin': demande.commentaire_admin,
+        'date_demande': demande.date_demande.isoformat() if demande.date_demande else None,
+        'date_traitement': demande.date_traitement.isoformat() if demande.date_traitement else None,
+    }
+
+
+def _appliquer_donnees_profil(prof, donnees):
+    """Applique une demande approuvée à la fiche formateur et au compte lié."""
+    if 'email' in donnees:
+        prof.email = donnees['email']
+    if 'telephone' in donnees:
+        prof.telephone = donnees['telephone']
+    if 'statut' in donnees:
+        prof.statut = donnees['statut']
+    if 'heures_max_semaine' in donnees:
+        prof.heures_max_semaine = donnees['heures_max_semaine']
+    for cle, champ in PROFIL_CHAMPS_SALLES:
+        if cle in donnees:
+            salle_id = donnees[cle]
+            setattr(prof, champ, _get_or_none(Salle, salle_id) if salle_id else None)
+    prof.save()
+
+    if prof.utilisateur_id:
+        utilisateur = prof.utilisateur
+        champs = []
+        if 'email' in donnees:
+            utilisateur.email = donnees['email']
+            champs.append('email')
+        if 'telephone' in donnees:
+            utilisateur.telephone = donnees['telephone']
+            champs.append('telephone')
+        if champs:
+            utilisateur.save(update_fields=champs)
 
 
 def _salle_data(s):
@@ -575,6 +709,8 @@ def professeurs_collection(request):
         prof = Professeur.objects.create(
             matricule=matricule,
             nom_complet=nom_complet.upper(),
+            email=str(data.get('email') or '').strip(),
+            telephone=str(data.get('telephone') or '').strip(),
             statut=str(data.get('statut') or 'permanent').strip().lower(),
             heures_max_semaine=float(data.get('heures_max_semaine') or 30.0),
             taux_presence=_normalize_taux(data.get('taux_presence')),
@@ -610,6 +746,10 @@ def professeur_detail(request, pk):
             if Professeur.objects.filter(matricule=matricule).exclude(pk=prof.pk).exists():
                 return _error(f'Le matricule {matricule} existe déjà.')
             prof.matricule = matricule
+        if 'email' in data:
+            prof.email = str(data.get('email') or '').strip()
+        if 'telephone' in data:
+            prof.telephone = str(data.get('telephone') or '').strip()
         if 'statut' in data:
             prof.statut = str(data.get('statut') or 'permanent').strip().lower()
         if 'heures_max_semaine' in data:
@@ -649,6 +789,115 @@ def professeur_detail(request, pk):
         return JsonResponse({'success': True, 'message': f'Formateur {prof.nom_complet} supprimé.'})
 
     return _error('Méthode non autorisée.', 405)
+
+
+# ─── Demandes de modification de profil formateur ─────────────────────────────
+@csrf_exempt
+def demandes_profil_collection(request):
+    """GET/POST /api/demandes-profil"""
+    if request.method == 'GET':
+        demandes = DemandeModificationProfil.objects.select_related(
+            'professeur',
+            'professeur__utilisateur',
+            'professeur__salle_preferee',
+            'professeur__salle_preferee_matin',
+            'professeur__salle_preferee_apm',
+        ).all()
+        professeur_id = _int_or_none(request.GET.get('professeur_id'))
+        if professeur_id:
+            demandes = demandes.filter(professeur_id=professeur_id)
+        statut = (request.GET.get('statut') or '').strip()
+        if statut:
+            demandes = demandes.filter(statut=statut)
+        return JsonResponse([_demande_profil_data(d) for d in demandes], safe=False)
+
+    if request.method != 'POST':
+        return _error('Méthode non autorisée.', 405)
+
+    data = _body(request)
+    prof = _get_or_none(Professeur, _value(data, 'professeur_id', 'professeur'))
+    if not prof:
+        return _error('Formateur introuvable.', 404)
+
+    donnees, erreur = _normaliser_donnees_profil(data)
+    if erreur:
+        return _error(erreur)
+    if not donnees:
+        return _error('Aucune modification à envoyer.')
+
+    commentaire = str(data.get('commentaire_formateur') or '').strip()[:1000]
+
+    demande = DemandeModificationProfil.objects.filter(
+        professeur=prof,
+        statut=DemandeModificationProfil.STATUT_EN_ATTENTE,
+    ).first()
+    creee = demande is None
+    if creee:
+        demande = DemandeModificationProfil(professeur=prof)
+    demande.donnees = donnees
+    demande.donnees_avant = _valeurs_profil(prof)
+    demande.commentaire_formateur = commentaire
+    demande.save()
+
+    return JsonResponse(_demande_profil_data(demande), status=201 if creee else 200)
+
+
+@csrf_exempt
+def demande_profil_detail(request, pk):
+    """GET/DELETE /api/demandes-profil/<id>"""
+    demande = _get_or_none(DemandeModificationProfil, pk)
+    if not demande:
+        return _error('Demande introuvable.', 404)
+
+    if request.method == 'GET':
+        return JsonResponse(_demande_profil_data(demande))
+
+    if request.method == 'DELETE':
+        if demande.statut != DemandeModificationProfil.STATUT_EN_ATTENTE:
+            return _error('Seule une demande en attente peut être annulée.')
+        demande.delete()
+        return JsonResponse({'success': True, 'message': 'Demande annulée.'})
+
+    return _error('Méthode non autorisée.', 405)
+
+
+def _traiter_demande_profil(request, pk, statut):
+    if request.method != 'POST':
+        return _error('Méthode non autorisée.', 405)
+
+    demande = _get_or_none(DemandeModificationProfil, pk)
+    if not demande:
+        return _error('Demande introuvable.', 404)
+    if demande.statut != DemandeModificationProfil.STATUT_EN_ATTENTE:
+        return _error('Cette demande a déjà été traitée.')
+
+    data = _body(request)
+    commentaire = str(data.get('commentaire_admin') or '').strip()[:1000]
+
+    with transaction.atomic():
+        if statut == DemandeModificationProfil.STATUT_APPROUVEE:
+            _appliquer_donnees_profil(demande.professeur, demande.donnees or {})
+        demande.statut = statut
+        demande.commentaire_admin = commentaire
+        demande.date_traitement = timezone.now()
+        demande.save(update_fields=['statut', 'commentaire_admin', 'date_traitement'])
+
+    return JsonResponse({
+        'demande': _demande_profil_data(demande),
+        'professeur': _professeur_data(demande.professeur),
+    })
+
+
+@csrf_exempt
+def approuver_demande_profil(request, pk):
+    """POST /api/demandes-profil/<id>/approuver"""
+    return _traiter_demande_profil(request, pk, DemandeModificationProfil.STATUT_APPROUVEE)
+
+
+@csrf_exempt
+def refuser_demande_profil(request, pk):
+    """POST /api/demandes-profil/<id>/refuser"""
+    return _traiter_demande_profil(request, pk, DemandeModificationProfil.STATUT_REFUSEE)
 
 
 # ─── CRUD : Salles ────────────────────────────────────────────────────────────

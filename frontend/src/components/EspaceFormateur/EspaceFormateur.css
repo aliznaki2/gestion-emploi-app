@@ -898,6 +898,464 @@
   color: #94a3b8;
 }
 
+/* ─── Profil formateur ────────────────────────────────────────────────── */
+.ef-profile-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.ef-profile-hero {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 22px 26px;
+  border-radius: 16px;
+  background: linear-gradient(120deg, #0f2d5e 0%, #1a5fa8 100%);
+  color: #fff;
+  box-shadow: 0 10px 30px rgba(15, 45, 94, 0.18);
+}
+
+.ef-profile-avatar {
+  flex: 0 0 auto;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.ef-profile-identity {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.ef-profile-identity h2 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.ef-profile-identity p {
+  margin: 0;
+  font-size: 12.5px;
+  opacity: 0.85;
+}
+
+.ef-profile-identity .ef-eyebrow {
+  margin-bottom: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.7;
+}
+
+.ef-profile-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ef-profile-tag {
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.14);
+  color: #e2e8f0;
+  font-size: 12px;
+  padding: 2px 10px;
+}
+
+.ef-profile-hero-stats {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ef-profile-hero-stats > div {
+  min-width: 92px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  text-align: center;
+}
+
+.ef-profile-hero-stats strong {
+  display: block;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.ef-profile-hero-stats span {
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.72);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.ef-profile-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.ef-profile-col {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.ef-panel {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 20px 22px;
+  box-shadow: 0 4px 16px rgba(15, 45, 94, 0.05);
+  min-width: 0;
+}
+
+.ef-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.ef-panel-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f2d5e;
+}
+
+.ef-panel-hint {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+}
+
+.ef-fiche-block {
+  margin-top: 14px;
+}
+
+.ef-fiche-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #64748b;
+}
+
+.ef-fiche-line {
+  margin: 0;
+  font-size: 13px;
+  color: #334155;
+}
+
+.ef-fiche-block .ef-module-chips {
+  margin-bottom: 0;
+}
+
+.ef-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+}
+
+.ef-facts > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid #eef2f7;
+  padding-bottom: 8px;
+}
+
+.ef-facts > div:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.ef-facts dt {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #64748b;
+}
+
+.ef-facts dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f2d5e;
+  text-align: right;
+}
+
+.ef-status-badge {
+  display: inline-block;
+  border-radius: 20px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 2px 10px;
+}
+
+.ef-status-badge--vacataire {
+  background: #fef3c7;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.ef-profile-hero .ef-status-badge {
+  background: #fff;
+  border-color: #fff;
+  color: #0f2d5e;
+}
+
+.ef-profile-hero .ef-status-badge--vacataire {
+  background: #fbbf24;
+  border-color: #fbbf24;
+  color: #451a03;
+}
+
+.ef-module-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.ef-module-chip {
+  display: inline-block;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+}
+
+.ef-muted {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  color: #64748b;
+}
+
+.ef-muted:last-child {
+  margin-bottom: 0;
+}
+
+.ef-pending {
+  border: 1px solid #fde68a;
+  border-radius: 14px;
+  background: #fffbeb;
+  padding: 16px 20px;
+}
+
+.ef-pending-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.ef-pending-head h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  color: #92400e;
+}
+
+.ef-pending-head p {
+  margin: 0;
+  font-size: 12px;
+  color: #a16207;
+}
+
+.ef-demande-badge {
+  display: inline-block;
+  white-space: nowrap;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border: 1px solid transparent;
+}
+
+.ef-demande-badge--en_attente {
+  background: #fef3c7;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.ef-demande-badge--approuvee {
+  background: #dcfce7;
+  border-color: #bbf7d0;
+  color: #15803d;
+}
+
+.ef-demande-badge--refusee {
+  background: #fee2e2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.ef-change-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ef-change-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: #57534e;
+}
+
+.ef-change-label {
+  min-width: 155px;
+  font-weight: 700;
+  color: #44403c;
+}
+
+.ef-change-old {
+  color: #b91c1c;
+  text-decoration: line-through;
+}
+
+.ef-change-arrow {
+  color: #a8a29e;
+}
+
+.ef-change-new {
+  font-weight: 700;
+  color: #15803d;
+}
+
+.ef-pending-motif {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  color: #92400e;
+}
+
+.ef-profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.ef-profile-form fieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ef-profile-form legend {
+  padding: 0;
+  margin-bottom: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #1a5fa8;
+}
+
+.ef-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.ef-form-grid--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ef-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12.5px;
+  color: #334155;
+}
+
+.ef-field > span {
+  font-weight: 600;
+}
+
+.ef-field input,
+.ef-field select,
+.ef-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.ef-field input:focus,
+.ef-field select:focus,
+.ef-field textarea:focus {
+  outline: none;
+  border-color: #1a5fa8;
+  box-shadow: 0 0 0 3px rgba(26, 95, 168, 0.15);
+}
+
+.ef-field textarea {
+  resize: vertical;
+}
+
+.ef-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  border-top: 1px solid #eef2f7;
+  padding-top: 16px;
+}
+
+.ef-form-hint {
+  margin: 0;
+  max-width: 560px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.ef-profile-history {
+  min-width: 0;
+}
+
 /* ─── Impression ──────────────────────────────────────────────────────── */
 .ef-print-only {
   display: none;
@@ -1014,5 +1472,28 @@
 
   .ef-next {
     flex-wrap: wrap;
+  }
+
+  .ef-profile-layout,
+  .ef-form-grid,
+  .ef-form-grid--3 {
+    grid-template-columns: 1fr;
+  }
+
+  .ef-profile-hero-stats {
+    width: 100%;
+  }
+
+  .ef-profile-hero-stats > div {
+    flex: 1 1 0;
+  }
+
+  .ef-form-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ef-change-label {
+    min-width: 0;
   }
 }

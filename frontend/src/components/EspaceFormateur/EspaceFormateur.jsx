@@ -19,7 +19,39 @@ const PAGES = [
   { id: 'disponibilites', label: 'Mes disponibilités' },
   { id: 'emploi', label: 'Mon emploi du temps' },
   { id: 'affectations', label: 'Mes affectations' },
+  { id: 'profil', label: 'Mon Profil' },
 ]
+
+const STATUTS_PROFIL = [
+  { id: 'permanent', label: 'Permanent' },
+  { id: 'vacataire', label: 'Vacataire' },
+]
+
+const STATUTS_DEMANDE = {
+  en_attente: 'En attente',
+  approuvee: 'Approuvée',
+  refusee: 'Refusée',
+}
+
+const CHAMPS_PROFIL = {
+  email: 'Email',
+  telephone: 'Téléphone',
+  statut: 'Statut',
+  heures_max_semaine: 'Heures max / semaine',
+  salle_preferee_id: 'Salle préférée',
+  salle_preferee_matin_id: 'Salle préférée (matin)',
+  salle_preferee_apm_id: 'Salle préférée (après-midi)',
+}
+
+const formProfilVide = {
+  email: '',
+  telephone: '',
+  statut: 'permanent',
+  heures_max_semaine: 30,
+  salle_preferee_id: '',
+  salle_preferee_matin_id: '',
+  salle_preferee_apm_id: '',
+}
 
 const ETATS = ['disponible', 'bloque', 'prefere']
 const CYCLE_ETATS = { disponible: 'bloque', bloque: 'prefere', prefere: 'disponible' }
@@ -101,11 +133,12 @@ const SemaineSelect = ({ semaines, semaine, onChange }) => (
 /**
  * Espace du profil « formateur ».
  *
- * Quatre pages :
+ * Cinq pages :
  *  - Accueil : résumé de la charge, disponibilités et prochaine séance.
  *  - Mes disponibilités : grille hebdomadaire disponible / préféré / indisponible.
  *  - Mon emploi du temps : planning personnel, impression et export iCalendar.
  *  - Mes affectations : modules et groupes attribués au formateur.
+ *  - Mon Profil : fiche personnelle et demandes de modification validées par l'administration.
  */
 export default function EspaceFormateur({ email = '', onLogout }) {
   const [activePage, setActivePage] = useState('accueil')
@@ -133,6 +166,16 @@ export default function EspaceFormateur({ email = '', onLogout }) {
 
   const [initialError, setInitialError] = useState('')
 
+  const [salles, setSalles] = useState([])
+  const [demandesProfil, setDemandesProfil] = useState([])
+  const [loadingDemandes, setLoadingDemandes] = useState(false)
+  const [demandesError, setDemandesError] = useState('')
+  const [profilForm, setProfilForm] = useState(formProfilVide)
+  const [profilCommentaire, setProfilCommentaire] = useState('')
+  const [savingProfil, setSavingProfil] = useState(false)
+  const [profilMessage, setProfilMessage] = useState('')
+  const [profilError, setProfilError] = useState('')
+
   // ── Chargement initial : profils, créneaux, semaines ─────────────────────
   useEffect(() => {
     let actif = true
@@ -141,12 +184,14 @@ export default function EspaceFormateur({ email = '', onLogout }) {
       apiFetch(`${API}/professeurs`).catch(() => []),
       apiFetch(`${API}/creneaux`).catch(() => []),
       apiFetch(`${API}/semaines`).catch(() => []),
+      apiFetch(`${API}/salles`).catch(() => []),
     ])
-      .then(([profs, crs, sems]) => {
+      .then(([profs, crs, sems, sls]) => {
         if (!actif) return
         setProfesseurs(profs)
         setCreneaux(crs)
         setSemaines(sems)
+        setSalles(Array.isArray(sls) ? sls : [])
         setSelectedSemaine(sems[0] || null)
 
         const emailNormalise = (email || '').trim().toLowerCase()
@@ -196,6 +241,8 @@ export default function EspaceFormateur({ email = '', onLogout }) {
 
   const choisirProf = (value) => {
     setProfId(value)
+    setProfilMessage('')
+    setProfilError('')
     try {
       window.localStorage.setItem('gestemploi_prof_id', value)
     } catch {
@@ -290,6 +337,63 @@ export default function EspaceFormateur({ email = '', onLogout }) {
       actif = false
     }
   }, [profId])
+
+  // ── Demandes de modification de profil ───────────────────────────────────
+  useEffect(() => {
+    if (!profId) {
+      setDemandesProfil([])
+      return
+    }
+    let actif = true
+    setLoadingDemandes(true)
+    setDemandesError('')
+
+    apiFetch(`${API}/demandes-profil?professeur_id=${profId}`)
+      .then((liste) => {
+        if (actif) setDemandesProfil(Array.isArray(liste) ? liste : [])
+      })
+      .catch((err) => {
+        if (actif) {
+          setDemandesProfil([])
+          setDemandesError(err.message || 'Impossible de charger vos demandes.')
+        }
+      })
+      .finally(() => {
+        if (actif) setLoadingDemandes(false)
+      })
+
+    return () => {
+      actif = false
+    }
+  }, [profId])
+
+  const demandeEnAttente = useMemo(
+    () => demandesProfil.find((d) => d.statut === 'en_attente') || null,
+    [demandesProfil],
+  )
+
+  // Pré-remplit le formulaire avec la fiche actuelle (ou la demande en attente).
+  useEffect(() => {
+    if (!profSelectionne) {
+      setProfilForm(formProfilVide)
+      setProfilCommentaire('')
+      return
+    }
+    const source = demandeEnAttente
+      ? { ...profSelectionne, ...(demandeEnAttente.donnees || {}) }
+      : profSelectionne
+    const salleId = (valeur) => (valeur ? String(valeur) : '')
+    setProfilForm({
+      email: source.email || '',
+      telephone: source.telephone || '',
+      statut: source.statut || 'permanent',
+      heures_max_semaine: source.heures_max_semaine ?? 30,
+      salle_preferee_id: salleId(source.salle_preferee_id),
+      salle_preferee_matin_id: salleId(source.salle_preferee_matin_id),
+      salle_preferee_apm_id: salleId(source.salle_preferee_apm_id),
+    })
+    setProfilCommentaire(demandeEnAttente?.commentaire_formateur || '')
+  }, [profSelectionne, demandeEnAttente])
 
   const creneauxParCellule = useMemo(() => {
     const map = {}
@@ -469,6 +573,91 @@ export default function EspaceFormateur({ email = '', onLogout }) {
       setDisposError(err.message || "Impossible d'enregistrer les disponibilités.")
     } finally {
       setSavingDispos(false)
+    }
+  }
+
+  const nomSalle = (id) => {
+    if (!id) return 'Aucune'
+    const salle = salles.find((s) => String(s.id) === String(id))
+    return salle?.nom || `Salle #${id}`
+  }
+
+  const valeurAffichee = (cle, valeur) => {
+    if (cle.startsWith('salle_')) return nomSalle(valeur)
+    if (cle === 'heures_max_semaine') {
+      return valeur === null || valeur === undefined || valeur === '' ? '—' : `${valeur} h`
+    }
+    if (cle === 'statut') return valeur === 'vacataire' ? 'Vacataire' : 'Permanent'
+    return valeur || '—'
+  }
+
+  const changementsDemande = (demande) => {
+    const donnees = demande?.donnees || {}
+    const actuel = demande?.actuel || {}
+    return Object.entries(donnees)
+      .map(([cle, apres]) => ({
+        cle,
+        label: CHAMPS_PROFIL[cle] || cle,
+        avant: valeurAffichee(cle, actuel[cle]),
+        apres: valeurAffichee(cle, apres),
+      }))
+      .filter((changement) => changement.avant !== changement.apres)
+  }
+
+  const modifierChampProfil = (champ, valeur) => {
+    setProfilForm((prev) => ({ ...prev, [champ]: valeur }))
+    setProfilMessage('')
+    setProfilError('')
+  }
+
+  const envoyerDemandeProfil = async (event) => {
+    event.preventDefault()
+    if (!profId) return
+    setSavingProfil(true)
+    setProfilError('')
+    setProfilMessage('')
+    try {
+      const demande = await apiFetch(`${API}/demandes-profil`, {
+        method: 'POST',
+        body: JSON.stringify({
+          professeur_id: Number(profId),
+          email: profilForm.email.trim(),
+          telephone: profilForm.telephone.trim(),
+          statut: profilForm.statut,
+          heures_max_semaine: Number(profilForm.heures_max_semaine) || 0,
+          salle_preferee_id: profilForm.salle_preferee_id || null,
+          salle_preferee_matin_id: profilForm.salle_preferee_matin_id || null,
+          salle_preferee_apm_id: profilForm.salle_preferee_apm_id || null,
+          commentaire_formateur: profilCommentaire.trim(),
+        }),
+      })
+      setDemandesProfil((prev) => [
+        demande,
+        ...prev.filter((d) => d.id !== demande.id),
+      ])
+      setProfilMessage(
+        "Votre demande a été envoyée. Elle sera appliquée après validation par l'administration.",
+      )
+    } catch (err) {
+      setProfilError(err.message || "Impossible d'envoyer la demande.")
+    } finally {
+      setSavingProfil(false)
+    }
+  }
+
+  const annulerDemandeProfil = async () => {
+    if (!demandeEnAttente) return
+    setSavingProfil(true)
+    setProfilError('')
+    setProfilMessage('')
+    try {
+      await apiFetch(`${API}/demandes-profil/${demandeEnAttente.id}`, { method: 'DELETE' })
+      setDemandesProfil((prev) => prev.filter((d) => d.id !== demandeEnAttente.id))
+      setProfilMessage('Votre demande a été annulée.')
+    } catch (err) {
+      setProfilError(err.message || "Impossible d'annuler la demande.")
+    } finally {
+      setSavingProfil(false)
     }
   }
 
@@ -1106,6 +1295,359 @@ export default function EspaceFormateur({ email = '', onLogout }) {
               </div>
             )}
           </section>
+        )}
+
+        {activePage === 'profil' && (
+          <div className="ef-profile-page">
+            <section className="ef-profile-hero">
+              {profSelectionne ? (
+                <>
+                  <div className="ef-profile-avatar" aria-hidden="true">
+                    {(profSelectionne.nom_complet || '')
+                      .split(/\s+/)
+                      .filter(Boolean)
+                      .slice(0, 2)
+                      .map((mot) => mot[0].toUpperCase())
+                      .join('')}
+                  </div>
+                  <div className="ef-profile-identity">
+                    <p className="ef-eyebrow">Mon profil</p>
+                    <h2>{profSelectionne.nom_complet}</h2>
+                    <div className="ef-profile-tags">
+                      <span className="ef-profile-tag">
+                        Matricule {profSelectionne.matricule || '—'}
+                      </span>
+                      <span
+                        className={`ef-status-badge ${
+                          profSelectionne.statut === 'vacataire'
+                            ? 'ef-status-badge--vacataire'
+                            : ''
+                        }`}
+                      >
+                        {profSelectionne.statut === 'vacataire' ? 'Vacataire' : 'Permanent'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="ef-profile-hero-stats">
+                    <div>
+                      <strong>{affectations.length}</strong>
+                      <span>affectation{affectations.length > 1 ? 's' : ''}</span>
+                    </div>
+                    <div>
+                      <strong>{chargeTheorique} h</strong>
+                      <span>charge / semaine</span>
+                    </div>
+                    <div>
+                      <strong>{hoursMax ? `${hoursMax} h` : '—'}</strong>
+                      <span>plafond hebdo</span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="ef-profile-identity">
+                  <p className="ef-eyebrow">Mon profil</p>
+                  <h2>Aucun profil sélectionné</h2>
+                  <p>Choisissez votre profil dans la liste en haut de la page.</p>
+                </div>
+              )}
+            </section>
+
+            {demandesError && <div className="ef-alert ef-alert--error">{demandesError}</div>}
+            {profilError && <div className="ef-alert ef-alert--error">{profilError}</div>}
+            {profilMessage && <div className="ef-alert ef-alert--success">{profilMessage}</div>}
+
+            {profSelectionne && (
+              <>
+                <div className="ef-profile-layout">
+                  <div className="ef-profile-col">
+                    <section className="ef-panel">
+                      <header className="ef-panel-head">
+                        <h3>Ma fiche</h3>
+                        <span className="ef-panel-hint">Lecture seule</span>
+                      </header>
+                      <dl className="ef-facts">
+                        <div>
+                          <dt>Matricule</dt>
+                          <dd>{profSelectionne.matricule || '—'}</dd>
+                        </div>
+                        <div>
+                          <dt>Email</dt>
+                          <dd>{profSelectionne.email || 'Non renseigné'}</dd>
+                        </div>
+                        <div>
+                          <dt>Téléphone</dt>
+                          <dd>{profSelectionne.telephone || 'Non renseigné'}</dd>
+                        </div>
+                      </dl>
+
+                      <div className="ef-fiche-block">
+                        <span className="ef-fiche-label">Modules</span>
+                        {(profSelectionne.modules || []).length === 0 ? (
+                          <span className="ef-muted">Aucun module affecté.</span>
+                        ) : (
+                          <div className="ef-module-chips">
+                            {profSelectionne.modules.map((module) => (
+                              <span key={module.id} className="ef-module-chip">
+                                {module.code}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="ef-fiche-block">
+                        <span className="ef-fiche-label">Affectations</span>
+                        <p className="ef-fiche-line">
+                          <strong>{affectations.length}</strong> affectation
+                          {affectations.length > 1 ? 's' : ''} ·{' '}
+                          <strong>{chargeTheorique} h</strong> / semaine
+                        </p>
+                      </div>
+                    </section>
+
+                    <section className="ef-panel">
+                      <header className="ef-panel-head">
+                        <h3>Préférences actuelles</h3>
+                        <span className="ef-panel-hint">Via une demande</span>
+                      </header>
+                      <dl className="ef-facts">
+                        <div>
+                          <dt>Heures max / semaine</dt>
+                          <dd>{hoursMax ? `${hoursMax} h` : '—'}</dd>
+                        </div>
+                        <div>
+                          <dt>Salle générale</dt>
+                          <dd>{nomSalle(profSelectionne.salle_preferee_id)}</dd>
+                        </div>
+                        <div>
+                          <dt>Salle matin</dt>
+                          <dd>{nomSalle(profSelectionne.salle_preferee_matin_id)}</dd>
+                        </div>
+                        <div>
+                          <dt>Salle après-midi</dt>
+                          <dd>{nomSalle(profSelectionne.salle_preferee_apm_id)}</dd>
+                        </div>
+                      </dl>
+                    </section>
+                  </div>
+
+                  <div className="ef-profile-col">
+                    {demandeEnAttente && (
+                      <section className="ef-pending">
+                        <div className="ef-pending-head">
+                          <div>
+                            <h3>Demande en attente de validation</h3>
+                            <p>
+                              Envoyée le {formatDate(demandeEnAttente.date_demande)}. Vous
+                              pouvez encore la mettre à jour ou l'annuler.
+                            </p>
+                          </div>
+                          <span className="ef-demande-badge ef-demande-badge--en_attente">
+                            En attente
+                          </span>
+                        </div>
+                        <ul className="ef-change-list">
+                          {changementsDemande(demandeEnAttente).map((changement) => (
+                            <li key={changement.cle}>
+                              <span className="ef-change-label">{changement.label}</span>
+                              <span className="ef-change-old">{changement.avant}</span>
+                              <span className="ef-change-arrow">→</span>
+                              <span className="ef-change-new">{changement.apres}</span>
+                            </li>
+                          ))}
+                        </ul>
+                        {demandeEnAttente.commentaire_formateur && (
+                          <p className="ef-pending-motif">
+                            <strong>Motif :</strong>{' '}
+                            {demandeEnAttente.commentaire_formateur}
+                          </p>
+                        )}
+                        <button
+                          type="button"
+                          className="ef-btn ef-btn--ghost"
+                          onClick={annulerDemandeProfil}
+                          disabled={savingProfil}
+                        >
+                          Annuler la demande
+                        </button>
+                      </section>
+                    )}
+
+                    <form className="ef-panel ef-profile-form" onSubmit={envoyerDemandeProfil}>
+                      <header className="ef-panel-head">
+                        <h3>Demander une modification</h3>
+                        <span className="ef-panel-hint">Validation requise</span>
+                      </header>
+
+                      <fieldset>
+                        <legend>Contact</legend>
+                        <div className="ef-form-grid">
+                          <label className="ef-field">
+                            <span>Email</span>
+                            <input
+                              type="email"
+                              value={profilForm.email}
+                              onChange={(e) => modifierChampProfil('email', e.target.value)}
+                              placeholder="prenom.nom@ofppt.ma"
+                            />
+                          </label>
+                          <label className="ef-field">
+                            <span>Téléphone</span>
+                            <input
+                              type="tel"
+                              maxLength={20}
+                              value={profilForm.telephone}
+                              onChange={(e) => modifierChampProfil('telephone', e.target.value)}
+                              placeholder="06 00 00 00 00"
+                            />
+                          </label>
+                        </div>
+                      </fieldset>
+
+                      <fieldset>
+                        <legend>Statut &amp; charge</legend>
+                        <div className="ef-form-grid">
+                          <label className="ef-field">
+                            <span>Statut</span>
+                            <select
+                              value={profilForm.statut}
+                              onChange={(e) => modifierChampProfil('statut', e.target.value)}
+                            >
+                              {STATUTS_PROFIL.map((statut) => (
+                                <option key={statut.id} value={statut.id}>
+                                  {statut.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="ef-field">
+                            <span>Heures max / semaine</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="60"
+                              step="0.5"
+                              value={profilForm.heures_max_semaine}
+                              onChange={(e) =>
+                                modifierChampProfil('heures_max_semaine', e.target.value)
+                              }
+                            />
+                          </label>
+                        </div>
+                      </fieldset>
+
+                      <fieldset>
+                        <legend>Salles préférées</legend>
+                        <div className="ef-form-grid ef-form-grid--3">
+                          {[
+                            ['salle_preferee_id', 'Salle générale'],
+                            ['salle_preferee_matin_id', 'Matin (AM)'],
+                            ['salle_preferee_apm_id', 'Après-midi (PM)'],
+                          ].map(([cle, label]) => (
+                            <label key={cle} className="ef-field">
+                              <span>{label}</span>
+                              <select
+                                value={profilForm[cle]}
+                                onChange={(e) => modifierChampProfil(cle, e.target.value)}
+                              >
+                                <option value="">Aucune préférence</option>
+                                {salles.map((salle) => (
+                                  <option key={salle.id} value={salle.id}>
+                                    {salle.nom}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+
+                      <label className="ef-field">
+                        <span>Motif / précisions (optionnel)</span>
+                        <textarea
+                          rows={3}
+                          maxLength={1000}
+                          value={profilCommentaire}
+                          onChange={(e) => setProfilCommentaire(e.target.value)}
+                          placeholder="Expliquez brièvement votre demande…"
+                        />
+                      </label>
+
+                      <div className="ef-form-actions">
+                        <p className="ef-form-hint">
+                          Les modifications seront appliquées après validation par
+                          l'administration. Votre fiche actuelle reste inchangée en attendant.
+                        </p>
+                        <button
+                          type="submit"
+                          className="ef-btn ef-btn--primary"
+                          disabled={savingProfil || loadingDemandes}
+                        >
+                          {savingProfil
+                            ? 'Envoi…'
+                            : demandeEnAttente
+                              ? 'Mettre à jour ma demande'
+                              : 'Envoyer la demande'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+
+                <section className="ef-panel ef-profile-history">
+                  <header className="ef-panel-head">
+                    <h3>Historique des demandes</h3>
+                    <span className="ef-panel-hint">
+                      {demandesProfil.filter((d) => d.statut !== 'en_attente').length} traitée
+                      {demandesProfil.filter((d) => d.statut !== 'en_attente').length > 1
+                        ? 's'
+                        : ''}
+                    </span>
+                  </header>
+                  {loadingDemandes ? (
+                    <div className="ef-empty">Chargement de vos demandes…</div>
+                  ) : demandesProfil.filter((d) => d.statut !== 'en_attente').length === 0 ? (
+                    <p className="ef-muted">Aucune demande traitée pour le moment.</p>
+                  ) : (
+                    <div className="ef-table-wrap">
+                      <table className="ef-table">
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Statut</th>
+                            <th>Modifications demandées</th>
+                            <th>Commentaire de l'administration</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {demandesProfil
+                            .filter((d) => d.statut !== 'en_attente')
+                            .map((demande) => (
+                              <tr key={demande.id}>
+                                <td>{formatDate(demande.date_demande)}</td>
+                                <td>
+                                  <span
+                                    className={`ef-demande-badge ef-demande-badge--${demande.statut}`}
+                                  >
+                                    {STATUTS_DEMANDE[demande.statut] || demande.statut}
+                                  </span>
+                                </td>
+                                <td>
+                                  {changementsDemande(demande)
+                                    .map((c) => `${c.label} : ${c.avant} → ${c.apres}`)
+                                    .join(' · ') || '—'}
+                                </td>
+                                <td>{demande.commentaire_admin || '—'}</td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+              </>
+            )}
+          </div>
         )}
       </main>
 
