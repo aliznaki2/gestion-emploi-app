@@ -1446,6 +1446,193 @@ function AffectationModal({ row, professeurs = [], onClose, onSave }) {
   )
 }
 
+// ─── Modal Nouveau couple Groupe + Module ────────────────────────────────────
+function NouvelleAffectationModal({ groupes = [], modules = [], professeurs = [], onClose, onSave }) {
+  const [groupeId, setGroupeId] = useState('')
+  const [moduleId, setModuleId] = useState('')
+  const [mode, setMode] = useState('assign')
+  const [profId, setProfId] = useState('')
+  const [statut, setStatut] = useState('a_pourvoir')
+  const [notes, setNotes] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const groupesActifs = [...groupes]
+    .filter(g => g.actif !== false)
+    .sort((a, b) => (a.code || '').localeCompare(b.code || '', undefined, { numeric: true }))
+  const modulesTries = [...modules]
+    .sort((a, b) => (a.code || '').localeCompare(b.code || '', undefined, { numeric: true }))
+  const candidats = professeurs.filter(p => p.actif !== false)
+
+  const groupe = groupesActifs.find(g => String(g.id) === String(groupeId))
+  const module = modulesTries.find(m => String(m.id) === String(moduleId))
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault()
+    if (!groupeId) {
+      setError('Veuillez sélectionner un groupe.')
+      return
+    }
+    if (!moduleId) {
+      setError('Veuillez sélectionner un module.')
+      return
+    }
+    if (mode === 'assign' && !profId) {
+      setError('Veuillez sélectionner un formateur.')
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      const payload = {
+        groupe_id: +groupeId,
+        module_id: +moduleId,
+      }
+      if (mode === 'assign') {
+        payload.professeur_id = +profId
+      } else {
+        payload.statut = statut
+        payload.notes = notes
+      }
+      const res = await apiFetch(`${API}/affectations`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      onSave(res)
+    } catch (err) {
+      setError(err.message || 'Une erreur est survenue')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 18, color: '#0f2d5e' }}>
+            Nouveau couple Groupe + Module
+          </h3>
+          <button
+            onClick={onClose}
+            type="button"
+            style={{ fontSize: 20, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}
+          >
+            ×
+          </button>
+        </div>
+
+        {error && (
+          <div className="alert-banner error" style={{ marginBottom: 16 }}>
+            <span>{error}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit}>
+          <div className="modal-field">
+            <label>Groupe *</label>
+            <select value={groupeId} onChange={e => setGroupeId(e.target.value)} required autoFocus>
+              <option value="">— Sélectionner un groupe —</option>
+              {groupesActifs.map(g => (
+                <option key={g.id} value={g.id}>
+                  {g.code}{g.filiere_code ? ` — ${g.filiere_code}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="modal-field">
+            <label>Module *</label>
+            <select value={moduleId} onChange={e => setModuleId(e.target.value)} required>
+              <option value="">— Sélectionner un module —</option>
+              {modulesTries.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.code} — {m.intitule}
+                  {m.heures_hebdomadaires != null ? ` (${m.heures_hebdomadaires} h/sem.)` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {groupe && module && (
+            <div style={{
+              fontSize: 12, color: '#475569', background: '#f8fafc',
+              border: '1px solid #e2e8f0', borderRadius: 8,
+              padding: '10px 12px', marginBottom: 16, lineHeight: 1.5
+            }}>
+              <strong style={{ color: '#0f2d5e' }}>{module.code}</strong> sera enseigné au groupe{' '}
+              <strong style={{ color: '#0f2d5e' }}>{groupe.code}</strong>.
+              {module.heures_hebdomadaires != null && (
+                <> Volume : <strong>{module.heures_hebdomadaires} h / semaine</strong>.</>
+              )}
+            </div>
+          )}
+
+          <div className="modal-field">
+            <label>Décision</label>
+            <select value={mode} onChange={e => setMode(e.target.value)}>
+              <option value="assign">Nommer un formateur</option>
+              <option value="open">Laisser le poste à pourvoir</option>
+            </select>
+          </div>
+
+          {mode === 'assign' ? (
+            <div className="modal-field">
+              <label>Formateur *</label>
+              <select value={profId} onChange={e => setProfId(e.target.value)} required>
+                <option value="">— Sélectionner un formateur —</option>
+                {candidats.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.nom_complet}{p.matricule ? ` (${p.matricule})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <>
+              <div className="modal-field">
+                <label>Statut du besoin</label>
+                <select value={statut} onChange={e => setStatut(e.target.value)}>
+                  <option value="a_pourvoir">Poste à pourvoir</option>
+                  <option value="vacataire_a_recruter">Vacataire à recruter</option>
+                </select>
+              </div>
+              <div className="modal-field">
+                <label>Notes / commentaire</label>
+                <input
+                  type="text"
+                  placeholder="Ex: recrutement en cours, profil recherché…"
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  maxLength={255}
+                />
+              </div>
+            </>
+          )}
+
+          <div style={{
+            fontSize: 11, color: '#1e3a8a', background: '#eff6ff',
+            border: '1px solid #bfdbfe', borderRadius: 8,
+            padding: '10px 12px', lineHeight: 1.5
+          }}>
+            Le couple peut ne pas encore exister dans la filière : il sera créé ici.
+            Les séances restent planifiables même sans formateur nommé.
+          </div>
+
+          <div className="modal-actions" style={{ marginTop: 24 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
+              Annuler
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={loading}>
+              {loading ? 'Enregistrement…' : (mode === 'assign' ? 'Affecter' : 'Enregistrer le besoin')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 // ─── Modal Confirmation Suppression Affectation ──────────────────────────────
 function DeleteAffectationModal({ affectation, onClose, onConfirm, loading }) {
   if (!affectation) return null
@@ -2401,6 +2588,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
   // Affectations Groupe + Module → Formateur
   const [affectations, setAffectations] = useState([])
   const [affectationRow, setAffectationRow] = useState(null)
+  const [nouvelleAffectation, setNouvelleAffectation] = useState(false)
   const [deletingAffectation, setDeletingAffectation] = useState(null)
   const [deletingAffectationLoading, setDeletingAffectationLoading] = useState(false)
   const [affectationSearch, setAffectationSearch] = useState('')
@@ -4416,8 +4604,18 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                   </button>
                 )}
 
-                <div style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b' }}>
-                  Affichage de <strong>{filteredAffectationRows.length}</strong> sur {affectationRows.length} couples
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ fontSize: 12, color: '#64748b' }}>
+                    Affichage de <strong>{filteredAffectationRows.length}</strong> sur {affectationRows.length} couples
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => setNouvelleAffectation(true)}
+                    style={{ height: 38, padding: '0 14px', fontSize: 12, whiteSpace: 'nowrap' }}
+                  >
+                    + Nouveau couple
+                  </button>
                 </div>
               </div>
 
@@ -4448,7 +4646,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                               Aucun couple groupe/module à afficher
                             </div>
                             <div style={{ fontSize: 13, marginTop: 6 }}>
-                              Cochez des modules dans les filières pour faire apparaître les affectations.
+                              Cochez des modules dans les filières, ou créez un couple avec « + Nouveau couple ».
                             </div>
                           </td>
                         </tr>
@@ -5698,6 +5896,19 @@ export default function Dashboard({ role = 'admin', onLogout }) {
           professeurs={professeurs}
           onClose={() => setAffectationRow(null)}
           onSave={handleSaveAffectation}
+        />
+      )}
+
+      {nouvelleAffectation && (
+        <NouvelleAffectationModal
+          groupes={groupes}
+          modules={modules}
+          professeurs={professeurs}
+          onClose={() => setNouvelleAffectation(false)}
+          onSave={saved => {
+            handleSaveAffectation(saved)
+            setNouvelleAffectation(false)
+          }}
         />
       )}
 
