@@ -24,8 +24,9 @@ from core.models import (
     UniteEnseignement, Filiere, Secteur, TypeSalle, Module, Seance,
     SeanceGroupe, SeanceProfesseur, AnneeScolaire, Semestre, Indisponibilite,
     AffectationEnseignement, Disponibilite, DemandeModificationProfil,
+    TacheGeneration,
 )
-from solver.services import GenerateurEmploiDuTemps
+from solver.generation import GenerateurEmploiDuTemps
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1791,6 +1792,22 @@ def generer_semaine_compat(request, semaine_id):
     data = _body(request)
     max_time = _int_or_none(data.get('max_time_seconds')) or 60
     groupes_ids = data.get('groupes_ids') or None
+
+    # Une génération déjà en cours pour cette semaine bloque la relance.
+    limite = timezone.now() - timezone.timedelta(hours=3)
+    en_cours = TacheGeneration.objects.filter(
+        semaine_id=semaine_id,
+        statut__in=[TacheGeneration.STATUT_EN_ATTENTE, TacheGeneration.STATUT_EN_COURS],
+        date_debut__gte=limite,
+    ).order_by('-date_debut').first()
+    if en_cours:
+        return JsonResponse({
+            'succes': False,
+            'success': False,
+            'message': "Une génération est déjà en cours pour cette semaine.",
+            'tache_id': en_cours.id,
+        }, status=409)
+
     generateur = GenerateurEmploiDuTemps(semaine_id=semaine_id)
     res = generateur.executer(max_time_seconds=max_time, groupes_ids=groupes_ids)
     return JsonResponse(res, status=200 if res.get('succes') else 422)

@@ -33,6 +33,8 @@ class UnitePrevision:
     derniere_semaine: bool = False
     jour_efm: Optional[int] = None
     efm_simple: bool = False
+    professeur_sync_ids: List[int] = field(default_factory=list)
+    frac_sync: float = 0.0
 
 
 class CalculateurHeures:
@@ -175,6 +177,21 @@ class CalculateurHeures:
             groupe_ids = sorted(info['groupe_ids'])
 
             heures = float(getattr(module, 'heures_hebdomadaires', 0.0) or 0.0)
+
+            # Phase 0 : un module général ne se déroule que pendant son passage.
+            est_passage = False
+            passages = [p for p in ue.passages.all() if p.actif]
+            if module.type_module == 'general' and passages:
+                actif = next(
+                    (p for p in passages if p.semaine_debut <= num_semaine <= p.semaine_fin),
+                    None,
+                )
+                if actif is None:
+                    continue
+                est_passage = True
+                intensite = float(actif.intensite_h or 0.0)
+                heures = intensite if heures <= 0 else min(heures, intensite)
+
             if heures <= 0:
                 continue
             if getattr(module, 'peut_avoir_seance_2_5', False):
@@ -190,6 +207,22 @@ class CalculateurHeures:
                 for groupe_id in groupe_ids
                 for prof_id in profs_par_couple.get((module_id, groupe_id), ())
             })
+
+            # Formateurs synchrones (distance) et part de synchrone de l'unité.
+            prof_sync_ids = sorted({
+                up.professeur_id
+                for up in ue.unite_professeurs.all()
+                if up.mode == 'distance' and up.professeur and up.professeur.actif
+            })
+            volume = getattr(ue, 'volume_horaire', None)
+            frac_sync = 0.0
+            if volume:
+                denominateur = float(volume.h_presentiel or 0.0) + float(volume.h_synchrone or 0.0)
+                if denominateur > 0:
+                    frac_sync = max(
+                        0.0,
+                        min(1.0, float(volume.h_synchrone or 0.0) / denominateur),
+                    )
 
             # Tous les formateurs affectés sont indisponibles toute la semaine.
             if prof_ids and profs_jours_off and all(
@@ -224,10 +257,12 @@ class CalculateurHeures:
                     heures_prevues=heures,
                     type_module=module.type_module,
                     code_fusion=ue.code_fusion,
-                    est_passage=False,
+                    est_passage=est_passage,
                     derniere_semaine=derniere_semaine,
                     jour_efm=jour_efm,
                     efm_simple=False,
+                    professeur_sync_ids=prof_sync_ids,
+                    frac_sync=frac_sync,
                 )
             )
 

@@ -1,10 +1,14 @@
 """
 Service Orchestrateur : GenerateurEmploiDuTemps.
-Coordonne le calcul des heures, le découpage, la résolution CP-SAT et la persistance.
+Coordonne le calcul des passages, des heures, le découpage, la résolution
+CP-SAT et la persistance.
 """
 import logging
+import time
 import traceback
+from collections import defaultdict
 from typing import Optional, Dict, Any, List
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -17,6 +21,9 @@ from .heures import CalculateurHeures
 from .decoupage import DecoupeurSeances
 from .placement import ModelePlacement, ResultatPlacement
 from .indisponibilites import resoudre_indisponibilites, creneaux_par_jour
+from .donnees import Donnees
+from .passages import PlanificateurPassages
+from .criteres import criteres_par_defaut
 
 logger = logging.getLogger(__name__)
 
@@ -24,13 +31,23 @@ logger = logging.getLogger(__name__)
 class GenerateurEmploiDuTemps:
     """
     Orchestre la génération automatique d'emplois du temps pour une semaine donnée.
+
+    La façade peut être utilisée de façon synchrone (``executer``) ou via une
+    tâche de fond créée par l'API (``tache_id`` déjà existant).
     """
 
-    def __init__(self, semaine_id: int, utilisateur: Optional[Utilisateur] = None):
+    def __init__(
+        self,
+        semaine_id: int,
+        utilisateur: Optional[Utilisateur] = None,
+        tache_id: Optional[int] = None,
+    ):
         self.semaine_id = semaine_id
         self.utilisateur = utilisateur
         self.semaine = Semaine.objects.select_related('annee_scolaire', 'semestre').get(id=semaine_id)
-        self.tache: Optional[TacheGeneration] = None
+        self.tache: Optional[TacheGeneration] = (
+            TacheGeneration.objects.filter(pk=tache_id).first() if tache_id else None
+        )
 
     def _log(self, niveau: str, message: str) -> None:
         """Enregistre un événement dans la table Journal."""
@@ -45,20 +62,28 @@ class GenerateurEmploiDuTemps:
     def executer(self, max_time_seconds: int = 60, groupes_ids: Optional[List[int]] = None) -> Dict[str, Any]:
         """
         Déroule les phases de génération :
-        1. Initialisation de la tâche
-        2. Calcul des prévisions horaires (Phase 1)
-        3. Découpage en séances atomiques & blocs (Phase 2)
-        4. Optimisation mathématique CP-SAT (Phase 3)
-        5. Persistance transactionnelle des séances
+        0. Calendrier des passages des modules généraux
+        1. Calcul des prévisions horaires
+        2. Découpage en séances atomiques & blocs
+        3. Optimisation mathématique CP-SAT
+        4. Persistance transactionnelle des séances
         """
-        # 1. Création de la tâche de génération
-        self.tache = TacheGeneration.objects.create(
-            semaine=self.semaine,
-            semestre=self.semaine.semestre,
-            statut=TacheGeneration.STATUT_EN_COURS,
-            cree_par=self.utilisateur,
-            message=f"Démarrage de la génération pour la semaine {self.semaine.numero}.",
-        )
+        debut_execution = time.time()
+        resume: Dict[str, Any] = {}
+
+        # 1. Création ou reprise de la tâche de génération
+        if self.tache is None:
+            self.tache = TacheGeneration.objects.create(
+                semaine=self.semaine,
+                semestre=self.semaine.semestre,
+                statut=TacheGeneration.STATUT_EN_COURS,
+                cree_par=self.utilisateur,
+                message=f"Démarrage de la génération pour la semaine {self.semaine.numero}.",
+            )
+        else:
+            self.tache.statut = TacheGeneration.STATUT_EN_COURS
+            self.tache.message = f"Démarrage de la génération pour la semaine {self.semaine.numero}."
+            self.tache.save(update_fields=['statut', 'message'])
 
         try:
             self._log(Journal.NIVEAU_INFO, f"Initialisation de la génération pour la Semaine {self.semaine.numero}.")
@@ -80,7 +105,28 @@ class GenerateurEmploiDuTemps:
             if groupes_cibles is not None:
                 groupes_cibles = [g for g in groupes_cibles if g.id not in groupes_off_semaine]
 
-            # 2. Phase 1 : Calcul des heures
+            # ─── Phase 0 : calendrier des passages ────────────────────────────
+            self._log(Journal.NIVEAU_INFO, "Phase 0 : calendrier de passage des modules généraux.")
+            donnees = None
+            try:
+                donnees = Donnees.charger(self.semaine_id, groupes_ids=groupes_ids)
+                planificateur = PlanificateurPassages(donnees)
+                resultat_passages = planificateur.calculer()
+                passages_crees = planificateur.persister(donnees)
+                resume['phase0'] = planificateur.resume(resultat_passages)
+                resume['phase0']['passages_crees'] = passages_crees
+                self._log(Journal.NIVEAU_INFO, f"Phase 0 terminée : {resultat_passages.message}")
+                for alerte in resultat_passages.alertes()[:10]:
+                    self._log(
+                        Journal.NIVEAU_WARNING,
+                        f"Passage en retard : {alerte['module_code']} (unité {alerte['unite_id']}) "
+                        f"de {alerte['retard']} semaine(s).",
+                    )
+            except Exception as exc:  # la phase 0 ne doit pas bloquer la génération
+                self._log(Journal.NIVEAU_WARNING, f"Phase 0 ignorée : {exc}")
+                resume['phase0'] = {'statut': 'ERREUR', 'message': str(exc)}
+
+            # ─── Phase 1 : calcul des heures ─────────────────────────────────
             self._log(Journal.NIVEAU_INFO, "Phase 1 : Calcul des volumes horaires hebdomadaires.")
             calculateur = CalculateurHeures(semaine=self.semaine)
             previsions = calculateur.calculer(
@@ -89,6 +135,8 @@ class GenerateurEmploiDuTemps:
                 profs_jours_off=profs_jours_off,
             )
 
+            resume['phase1'] = self._resume_phase1(previsions, donnees)
+
             if not previsions:
                 msg = (
                     "Aucun module à planifier pour cette semaine. Vérifiez que les "
@@ -96,8 +144,14 @@ class GenerateurEmploiDuTemps:
                     "heures par semaine renseignées."
                 )
                 self._log(Journal.NIVEAU_WARNING, msg)
+                resume.update({
+                    'succes': True,
+                    'duree_totale_s': round(time.time() - debut_execution, 2),
+                    'message': msg,
+                })
                 self.tache.statut = TacheGeneration.STATUT_TERMINEE
                 self.tache.message = msg
+                self.tache.resume = resume
                 self.tache.date_fin = timezone.now()
                 self.tache.save()
                 return {
@@ -105,20 +159,25 @@ class GenerateurEmploiDuTemps:
                     'tache_id': self.tache.id,
                     'message': msg,
                     'nb_seances': 0,
+                    'resume': resume,
                 }
 
-            self._log(Journal.NIVEAU_INFO, f"Phase 1 terminée : {len(previsions)} unité(s) prévues.")
+            self._log(Journal.NIVEAU_INFO, f"Phase 1 terminée : {len(previsions)} unité(s) prévue(s).")
 
-            # 3. Phase 2 : Découpage en blocs et séances
+            # ─── Phase 2 : découpage en blocs et séances ─────────────────────
             self._log(Journal.NIVEAU_INFO, "Phase 2 : Découpage en blocs de 5h et séances simples de 2.5h.")
             decoupeur = DecoupeurSeances()
-            seances_a_placer = decoupeur.decouper(previsions)
+            seances_a_placer = decoupeur.decouper(
+                previsions,
+                semaine_numero=self.semaine.numero,
+            )
+            resume['phase2'] = self._resume_phase2(seances_a_placer)
             self._log(
                 Journal.NIVEAU_INFO,
                 f"Phase 2 terminée : {len(seances_a_placer)} séance(s) élémentaire(s) générée(s)."
             )
 
-            # 4. Phase 3 : Modèle CP-SAT & Placement
+            # ─── Phase 3 : modèle CP-SAT & placement ─────────────────────────
             self._log(Journal.NIVEAU_INFO, "Phase 3 : Modélisation et résolution CP-SAT (Google OR-Tools).")
             creneaux = list(Creneau.objects.all().order_by('jour', 'numero_seance'))
             salles = list(Salle.objects.filter(actif=True).select_related('type_salle'))
@@ -147,7 +206,6 @@ class GenerateurEmploiDuTemps:
             creneaux_par_j = creneaux_par_jour(creneaux)
             for gid, jours in groupes_jours_off.items():
                 if gid in groupes_off_semaine:
-                    # déjà exclu de la génération, mais on bloque tout de même
                     for c in creneaux:
                         occupations_groupes.add((c.id, gid))
                     continue
@@ -185,16 +243,34 @@ class GenerateurEmploiDuTemps:
                 occupations_profs=occupations_profs,
                 occupations_salles=occupations_salles,
             )
+            for critere in criteres_par_defaut():
+                modele.ajouter_critere(critere)
 
             resultat: ResultatPlacement = modele.resoudre(max_time_seconds=max_time_seconds)
 
             # 5. Traitement du résultat du Solver
             if not resultat.succes:
                 self._log(Journal.NIVEAU_ERROR, resultat.message)
+                resume['phase3'] = {
+                    'statut': resultat.statut,
+                    'objectif': resultat.score_penalite,
+                    'borne': resultat.borne,
+                    'seances_placees': 0,
+                    'non_placees': len(seances_a_placer),
+                    'heures_non_placees': len(seances_a_placer) * 2.5,
+                    'temps_resolution_ms': resultat.temps_resolution_ms,
+                    'message': resultat.message,
+                }
+                resume.update({
+                    'succes': False,
+                    'duree_totale_s': round(time.time() - debut_execution, 2),
+                    'message': resultat.message,
+                })
                 self.tache.statut = TacheGeneration.STATUT_ECHEC
                 self.tache.message = resultat.message
                 self.tache.temps_resolution_ms = resultat.temps_resolution_ms
                 self.tache.score_penalite = resultat.score_penalite
+                self.tache.resume = resume
                 self.tache.date_fin = timezone.now()
                 self.tache.save()
                 return {
@@ -202,17 +278,28 @@ class GenerateurEmploiDuTemps:
                     'tache_id': self.tache.id,
                     'message': resultat.message,
                     'temps_resolution_ms': resultat.temps_resolution_ms,
+                    'resume': resume,
                 }
+
+            resume['phase3'] = self._resume_phase3(resultat, seances_a_placer, creneaux)
 
             # 6. Persistance des séances en base de données
             self._log(Journal.NIVEAU_INFO, "Phase 4 : Enregistrement des séances et liaisons en base de données.")
             nb_seances_creees = self._persister_seances(resultat)
+
+            resume.update({
+                'succes': True,
+                'duree_totale_s': round(time.time() - debut_execution, 2),
+                'message': resultat.message,
+                'nb_seances': nb_seances_creees,
+            })
 
             # Clôture de la tâche avec succès
             self.tache.statut = TacheGeneration.STATUT_TERMINEE
             self.tache.message = resultat.message
             self.tache.temps_resolution_ms = resultat.temps_resolution_ms
             self.tache.score_penalite = resultat.score_penalite
+            self.tache.resume = resume
             self.tache.date_fin = timezone.now()
             self.tache.save()
 
@@ -228,23 +315,145 @@ class GenerateurEmploiDuTemps:
                 'nb_seances': nb_seances_creees,
                 'temps_resolution_ms': resultat.temps_resolution_ms,
                 'score_penalite': resultat.score_penalite,
+                'resume': resume,
             }
 
         except Exception as e:
             tb_str = traceback.format_exc()
             error_msg = f"Exception non gérée lors de la génération : {str(e)}"
             self._log(Journal.NIVEAU_ERROR, f"{error_msg}\n{tb_str}")
+            resume.update({
+                'succes': False,
+                'erreur': error_msg,
+                'duree_totale_s': round(time.time() - debut_execution, 2),
+            })
             if self.tache:
                 self.tache.statut = TacheGeneration.STATUT_ECHEC
                 self.tache.message = error_msg
+                self.tache.resume = resume
                 self.tache.date_fin = timezone.now()
                 self.tache.save()
             return {
                 'succes': False,
                 'tache_id': self.tache.id if self.tache else None,
                 'message': error_msg,
+                'resume': resume,
             }
 
+    # ─── Résumés JSON ────────────────────────────────────────────────────────
+    def _resume_phase1(self, previsions, donnees: Optional[Donnees]) -> Dict[str, Any]:
+        """Synthèse de la phase 1 (charges, groupes sous/entre/au-dessus)."""
+        charges_groupes: Dict[int, float] = defaultdict(float)
+        charges_profs: Dict[int, float] = defaultdict(float)
+        heures_demandees = 0.0
+
+        for prev in previsions:
+            heures_demandees += float(prev.heures_prevues or 0.0)
+            for gid in prev.groupe_ids:
+                charges_groupes[gid] += float(prev.heures_prevues or 0.0)
+            for pid in prev.professeur_ids:
+                charges_profs[pid] += float(prev.heures_prevues or 0.0)
+
+        plafond_defaut = (
+            donnees.params.plafond_professeur_defaut_h if donnees else 30.0
+        )
+        professeurs_map = donnees.professeurs_map if donnees else {}
+        surcharges = []
+        for pid, charge in charges_profs.items():
+            prof = professeurs_map.get(pid)
+            plafond = (
+                donnees.plafond_professeur(prof) if (donnees and prof) else plafond_defaut
+            )
+            if charge > plafond + 1e-6:
+                surcharges.append({
+                    'professeur_id': pid,
+                    'professeur': getattr(prof, 'nom_complet', str(pid)),
+                    'charge': round(charge, 2),
+                    'plafond': round(plafond, 2),
+                })
+
+        groupes_entre = sum(
+            1 for h in charges_groupes.values()
+            if 30.0 - 1e-6 <= h <= 35.0 + 1e-6
+        )
+        groupes_sous = sum(1 for h in charges_groupes.values() if h < 30.0 - 1e-6)
+        groupes_sur = sum(1 for h in charges_groupes.values() if h > 35.0 + 1e-6)
+
+        return {
+            'unites_planifiees': len(previsions),
+            'heures_demandees': round(heures_demandees, 2),
+            'professeurs_surcharges_avant': len(surcharges),
+            'professeurs_surcharges_apres': len(surcharges),
+            'professeurs_surcharges': surcharges[:50],
+            'groupes_entre_30_et_35h': groupes_entre,
+            'groupes_sous_30h': groupes_sous,
+            'groupes_au_dessus_35h': groupes_sur,
+            'groupes_charges': len(charges_groupes),
+        }
+
+    def _resume_phase2(self, seances) -> Dict[str, Any]:
+        """Synthèse de la phase 2 (blocs, séances simples, distance)."""
+        blocs = len({s.bloc_id for s in seances if s.bloc_id is not None})
+        simples = sum(1 for s in seances if s.nature == 'simple')
+        distance = sum(1 for s in seances if s.mode == 'distance')
+        sans_professeur = sum(1 for s in seances if not s.professeur_ids)
+        return {
+            'seances': len(seances),
+            'blocs': blocs,
+            'simples': simples,
+            'a_distance': distance,
+            'presentiel': len(seances) - distance,
+            'sans_professeur': sans_professeur,
+            'heures': round(len(seances) * 2.5, 2),
+        }
+
+    def _resume_phase3(self, resultat: ResultatPlacement, seances_a_placer, creneaux) -> Dict[str, Any]:
+        """Synthèse de la phase 3 (placement, heures creuses, journées de 10h)."""
+        creneaux_map = {c.id: c for c in creneaux}
+        occ_groupes: Dict[tuple, set] = defaultdict(set)
+        occ_profs: Dict[tuple, set] = defaultdict(set)
+
+        for sp in resultat.seances_placees:
+            creneau = creneaux_map.get(sp.creneau_id)
+            if creneau is None:
+                continue
+            for gid in sp.groupe_ids:
+                occ_groupes[(gid, creneau.jour)].add(creneau.numero_seance)
+            prof_ids = list(sp.professeur_ids)
+            if not prof_ids and sp.professeur_id:
+                prof_ids = [sp.professeur_id]
+            for pid in prof_ids:
+                occ_profs[(pid, creneau.jour)].add(creneau.numero_seance)
+
+        def _heures_creuses(occupations: Dict[tuple, set]) -> int:
+            trous = 0
+            for slots in occupations.values():
+                # Séance 2 vide entre la 1 et la 3/4.
+                if 1 in slots and (3 in slots or 4 in slots) and 2 not in slots:
+                    trous += 1
+                # Séance 3 vide entre la 1/2 et la 4.
+                if (1 in slots or 2 in slots) and 4 in slots and 3 not in slots:
+                    trous += 1
+            return trous
+
+        journees_10h = sum(1 for slots in occ_groupes.values() if len(slots) >= 4)
+        placees = len(resultat.seances_placees)
+        non_placees = max(0, len(seances_a_placer) - placees)
+
+        return {
+            'statut': resultat.statut,
+            'objectif': resultat.score_penalite,
+            'borne': resultat.borne,
+            'seances_placees': placees,
+            'non_placees': non_placees,
+            'heures_non_placees': round(non_placees * 2.5, 2),
+            'heures_creuses_groupes': _heures_creuses(occ_groupes),
+            'heures_creuses_professeurs': _heures_creuses(occ_profs),
+            'journees_10h': journees_10h,
+            'temps_resolution_ms': resultat.temps_resolution_ms,
+        }
+
+    # ─── Persistance ─────────────────────────────────────────────────────────
     @transaction.atomic
     def _persister_seances(self, resultat: ResultatPlacement) -> int:
         """
@@ -258,13 +467,19 @@ class GenerateurEmploiDuTemps:
         ).delete()
 
         seances_a_creer: List[Seance] = []
+        prof_ids_par_seance: List[List[int]] = []
         for sp in resultat.seances_placees:
+            prof_ids = list(sp.professeur_ids)
+            if not prof_ids and sp.professeur_id:
+                prof_ids = [sp.professeur_id]
+            prof_ids = list(dict.fromkeys(prof_ids))
+            prof_ids_par_seance.append(prof_ids)
             seance_obj = Seance(
                 unite_id=sp.unite_id,
                 semaine=self.semaine,
                 creneau_id=sp.creneau_id,
                 salle_id=sp.salle_id,
-                professeur_id=sp.professeur_id,
+                professeur_id=prof_ids[0] if prof_ids else None,
                 mode=sp.mode,
                 nature=sp.nature,
                 bloc_no=sp.bloc_no,
@@ -281,7 +496,7 @@ class GenerateurEmploiDuTemps:
         seance_groupes: List[SeanceGroupe] = []
         seance_profs: List[SeanceProfesseur] = []
 
-        for seance_obj, sp in zip(created_seances, resultat.seances_placees):
+        for seance_obj, sp, prof_ids in zip(created_seances, resultat.seances_placees, prof_ids_par_seance):
             # Liaison pour chaque groupe (ex: 2 groupes si fusion)
             for gid in sp.groupe_ids:
                 seance_groupes.append(
@@ -293,12 +508,12 @@ class GenerateurEmploiDuTemps:
                     )
                 )
 
-            # Liaison formateur
-            if sp.professeur_id:
+            # Liaison de tous les formateurs (co-enseignement)
+            for pid in prof_ids:
                 seance_profs.append(
                     SeanceProfesseur(
                         seance=seance_obj,
-                        professeur_id=sp.professeur_id,
+                        professeur_id=pid,
                         semaine=self.semaine,
                         creneau_id=sp.creneau_id,
                     )
@@ -311,4 +526,3 @@ class GenerateurEmploiDuTemps:
             SeanceProfesseur.objects.bulk_create(seance_profs)
 
         return len(created_seances)
-

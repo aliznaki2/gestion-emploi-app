@@ -214,7 +214,7 @@ class TacheGenerationSerializer(serializers.ModelSerializer):
         model = TacheGeneration
         fields = [
             'id', 'semaine', 'semaine_numero', 'semestre', 'statut',
-            'message', 'temps_resolution_ms', 'score_penalite',
+            'message', 'temps_resolution_ms', 'score_penalite', 'resume',
             'cree_par', 'cree_par_nom', 'date_debut', 'date_fin', 'journaux'
         ]
 
@@ -271,13 +271,23 @@ class SeanceSerializer(serializers.ModelSerializer):
 
 # ─── Requêtes d'Actions Métier ────────────────────────────────────────────────
 class LancerGenerationSerializer(serializers.Serializer):
-    semaine_id = serializers.IntegerField(required=True)
+    semaine_id = serializers.IntegerField(required=False)
+    semaine = serializers.IntegerField(required=False)
     max_time_seconds = serializers.IntegerField(default=60, min_value=5, max_value=600)
     groupes_ids = serializers.ListField(
         child=serializers.IntegerField(),
         required=False,
         allow_empty=True,
     )
+
+    def validate(self, attrs):
+        semaine_id = attrs.get('semaine_id') or attrs.get('semaine')
+        if not semaine_id:
+            raise serializers.ValidationError(
+                {'semaine_id': "Le champ 'semaine' ou 'semaine_id' est obligatoire."}
+            )
+        attrs['semaine_id'] = semaine_id
+        return attrs
 
 
 class ValiderSemaineSerializer(serializers.Serializer):

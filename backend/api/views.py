@@ -1,6 +1,9 @@
 """
 Vues de l'API REST DRF pour le système d'emploi du temps OFPPT.
 """
+import logging
+import threading
+
 from rest_framework import viewsets, status, generics
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -9,9 +12,10 @@ from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from django.db import transaction
+from django.db import transaction, close_old_connections
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 from core.models import (
     Utilisateur, Secteur, Filiere, Groupe, TypeSalle, Salle,
@@ -19,7 +23,9 @@ from core.models import (
     Creneau, Disponibilite, UniteEnseignement, TacheGeneration,
     Seance, SeanceGroupe, SeanceProfesseur
 )
-from solver.services import GenerateurEmploiDuTemps
+from solver.generation import GenerateurEmploiDuTemps
+from solver.donnees import Donnees
+from solver.passages import PlanificateurPassages
 from .permissions import EstAdmin, EstAdminOuLectureSeule, SeancePermission
 from .importer import FichierAvancementImporter
 from .serializers import (
@@ -32,6 +38,13 @@ from .serializers import (
     LancerGenerationSerializer, ValiderSemaineSerializer,
     ImportFichierSerializer
 )
+
+logger = logging.getLogger(__name__)
+
+# Verrou process-local : deux générations simultanées pour la même semaine
+# sont refusées (HTTP 409).  La base reste la source de vérité pour les
+# processus multiples.
+_GENERATION_LOCK = threading.Lock()
 
 
 # ─── Authentification ─────────────────────────────────────────────────────────
@@ -55,6 +68,51 @@ class ProfilUtilisateurView(APIView):
 
 
 # ─── Génération Automatique d'Emplois du Temps ────────────────────────────────
+def _executer_generation_en_tache(tache_id, semaine_id, utilisateur_id, max_time_seconds, groupes_ids):
+    """Exécute la génération dans un thread avec sa propre connexion base."""
+    close_old_connections()
+    try:
+        utilisateur = (
+            Utilisateur.objects.filter(pk=utilisateur_id).first()
+            if utilisateur_id else None
+        )
+        generateur = GenerateurEmploiDuTemps(
+            semaine_id=semaine_id,
+            utilisateur=utilisateur,
+            tache_id=tache_id,
+        )
+        generateur.executer(
+            max_time_seconds=max_time_seconds,
+            groupes_ids=groupes_ids,
+        )
+    except Exception as exc:  # pragma: no cover - garde-fou de la tâche de fond
+        logger.exception("Échec de la génération en tâche de fond (tâche %s)", tache_id)
+        TacheGeneration.objects.filter(pk=tache_id).update(
+            statut=TacheGeneration.STATUT_ECHEC,
+            message=f"Échec de la tâche de fond : {exc}",
+            date_fin=timezone.now(),
+        )
+    finally:
+        close_old_connections()
+
+
+def _marquer_taches_obsoletes(semaine_id):
+    """Marque comme échouées les tâches bloquées depuis plus de 3 heures."""
+    limite = timezone.now() - timezone.timedelta(hours=3)
+    TacheGeneration.objects.filter(
+        semaine_id=semaine_id,
+        statut__in=[
+            TacheGeneration.STATUT_EN_ATTENTE,
+            TacheGeneration.STATUT_EN_COURS,
+        ],
+        date_debut__lt=limite,
+    ).update(
+        statut=TacheGeneration.STATUT_ECHEC,
+        message="Tâche interrompue (délai dépassé).",
+        date_fin=timezone.now(),
+    )
+
+
 class GenerationViewSet(viewsets.ViewSet):
     """
     Gestion des lancements de génération du solver CP-SAT et consultation de l'avancement.
@@ -71,7 +129,7 @@ class GenerationViewSet(viewsets.ViewSet):
         return Response(serializer.data)
 
     def retrieve(self, request, pk=None):
-        """Détail d'une tâche avec son journal d'audit."""
+        """Détail d'une tâche avec son journal d'audit et son résumé JSON."""
         tache = get_object_or_404(TacheGeneration, pk=pk)
         serializer = TacheGenerationSerializer(tache)
         return Response(serializer.data)
@@ -79,7 +137,10 @@ class GenerationViewSet(viewsets.ViewSet):
     def create(self, request):
         """
         POST /api/generation/
-        Lance le solveur d'optimisation CP-SAT pour une semaine donnée.
+
+        Crée une tâche ``en_attente`` et renvoie immédiatement 202.  La
+        génération s'exécute dans un thread.  Une seconde demande pour la même
+        semaine renvoie 409 tant que la première n'est pas terminée.
         """
         serializer = LancerGenerationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -89,19 +150,78 @@ class GenerationViewSet(viewsets.ViewSet):
         groupes_ids = serializer.validated_data.get('groupes_ids', None)
 
         semaine = get_object_or_404(Semaine, id=semaine_id)
+        utilisateur_id = request.user.id if request.user.is_authenticated else None
 
-        # Exécution du moteur d'optimisation
-        generateur = GenerateurEmploiDuTemps(
-            semaine_id=semaine.id,
-            utilisateur=request.user,
-        )
-        resultat = generateur.executer(
-            max_time_seconds=max_time_seconds,
-            groupes_ids=groupes_ids,
+        with _GENERATION_LOCK:
+            _marquer_taches_obsoletes(semaine.id)
+            en_cours = TacheGeneration.objects.filter(
+                semaine_id=semaine.id,
+                statut__in=[
+                    TacheGeneration.STATUT_EN_ATTENTE,
+                    TacheGeneration.STATUT_EN_COURS,
+                ],
+            ).order_by('-date_debut').first()
+            if en_cours:
+                return Response(
+                    {
+                        'detail': "Une génération est déjà en cours pour cette semaine.",
+                        'tache_id': en_cours.id,
+                        'statut': en_cours.statut,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            tache = TacheGeneration.objects.create(
+                semaine=semaine,
+                semestre=semaine.semestre,
+                statut=TacheGeneration.STATUT_EN_ATTENTE,
+                cree_par_id=utilisateur_id,
+                message=f"Génération en attente pour la semaine {semaine.numero}.",
+            )
+            thread = threading.Thread(
+                target=_executer_generation_en_tache,
+                args=(tache.id, semaine.id, utilisateur_id, max_time_seconds, groupes_ids),
+                daemon=True,
+                name=f"generation-{tache.id}",
+            )
+            thread.start()
+
+        return Response(
+            TacheGenerationSerializer(tache).data,
+            status=status.HTTP_202_ACCEPTED,
         )
 
-        http_status = status.HTTP_200_OK if resultat['succes'] else status.HTTP_422_UNPROCESSABLE_ENTITY
-        return Response(resultat, status=http_status)
+
+class CalculerPassagesView(APIView):
+    """POST /api/passages/calculer/ : exécute uniquement la phase 0."""
+
+    permission_classes = [EstAdmin]
+
+    def post(self, request):
+        semaine_id = (
+            request.data.get('semaine_id')
+            or request.data.get('semaine')
+        )
+        if not semaine_id:
+            return Response(
+                {'detail': "Le champ 'semaine' (ou 'semaine_id') est obligatoire."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        semaine = get_object_or_404(Semaine, id=semaine_id)
+        donnees = Donnees.charger(semaine.id)
+        planificateur = PlanificateurPassages(donnees)
+        resultat = planificateur.calculer()
+        persistes = 0
+        if request.data.get('persister'):
+            persistes = planificateur.persister(donnees)
+        return Response({
+            'semaine': semaine.id,
+            'semaine_numero': semaine.numero,
+            'persistes': persistes,
+            'passages': [p.as_dict() for p in resultat.plans],
+            'alertes': resultat.alertes(),
+            'resume': planificateur.resume(resultat),
+        })
 
 
 # ─── CRUD Séances & Détection de Conflits ──────────────────────────────────────

@@ -759,6 +759,7 @@ class TacheGeneration(models.Model):
     message = models.TextField(blank=True, verbose_name=_("Message / Diagnostic"))
     temps_resolution_ms = models.IntegerField(default=0, verbose_name=_("Temps de résolution (ms)"))
     score_penalite = models.IntegerField(default=0, verbose_name=_("Pénalité Objectif"))
+    resume = models.JSONField(default=dict, blank=True, verbose_name=_("Résumé de génération"))
     cree_par = models.ForeignKey(Utilisateur, on_delete=models.SET_NULL, null=True, blank=True)
     date_debut = models.DateTimeField(auto_now_add=True)
     date_fin = models.DateTimeField(null=True, blank=True)

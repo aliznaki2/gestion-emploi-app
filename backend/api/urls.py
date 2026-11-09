@@ -6,7 +6,7 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     ConnexionTokenView, RafraichirTokenView, ProfilUtilisateurView,
-    GenerationViewSet, SeanceViewSet, ValiderSemaineView,
+    GenerationViewSet, CalculerPassagesView, SeanceViewSet, ValiderSemaineView,
     ImportAvancementView, SemaineViewSet, GroupeViewSet,
     ProfesseurViewSet, SalleViewSet, CreneauViewSet,
     ModuleViewSet, DisponibiliteViewSet
@@ -98,6 +98,7 @@ urlpatterns = [
     # ─── Génération Automatique DRF ──────────────────────────────────────────
     path('generation/', GenerationViewSet.as_view({'get': 'list', 'post': 'create'}), name='generation_list_create'),
     path('generation/<int:pk>/', GenerationViewSet.as_view({'get': 'retrieve'}), name='generation_detail'),
+    path('passages/calculer/', CalculerPassagesView.as_view(), name='calculer_passages'),
 
     # ─── Validation Semaine DRF ──────────────────────────────────────────────
     path('semaines/<int:semaine_id>/valider/', ValiderSemaineView.as_view(), name='valider_semaine'),
