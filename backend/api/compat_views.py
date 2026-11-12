@@ -453,6 +453,7 @@ def _salle_data(s):
 
 def _module_data(m):
     types = list(m.types_salles_compatibles.all())
+    prerequis = list(m.prerequis.all())
     return {
         'id': m.id,
         'code': m.code,
@@ -466,11 +467,32 @@ def _module_data(m):
         'peut_avoir_seance_2_5': m.peut_avoir_seance_2_5,
         'heures_hebdomadaires': float(m.heures_hebdomadaires or 0),
         'est_technique_m10': m.est_technique_m10,
+        'prerequis_ids': [p.id for p in prerequis],
+        'prerequis_codes': [p.code for p in prerequis],
+        'prerequis': [
+            {'id': p.id, 'code': p.code, 'intitule': p.intitule}
+            for p in prerequis
+        ],
         'types_salles_compatibles': [t.id for t in types],
         'types_salles_ids': [t.id for t in types],
         'types_salles_codes': [t.code for t in types],
         'types_salles_libelles': [t.libelle for t in types],
     }
+
+
+def _set_module_prerequis(module, data):
+    """Met à jour les prérequis depuis ``prerequis_ids`` ou ``prerequis_codes``."""
+    ids = data.get('prerequis_ids')
+    if ids is None:
+        codes = data.get('prerequis_codes')
+        if codes is None:
+            return
+        codes = [str(c).strip().upper() for c in codes if str(c).strip()]
+        cibles = Module.objects.filter(code__in=codes)
+    else:
+        ids = [_int_or_none(x) for x in ids if _int_or_none(x)]
+        cibles = Module.objects.filter(id__in=ids)
+    module.prerequis.set(cibles.exclude(pk=module.pk))
 
 
 def _filiere_data(f):
@@ -552,14 +574,21 @@ def init_semaines_compat(request):
     """POST /api/init-semaines"""
     annee = AnneeScolaire.objects.filter(active=True).first() or AnneeScolaire.objects.first()
     s1 = Semestre.objects.filter(annee_scolaire=annee, numero=1).first() if annee else None
+    s2 = Semestre.objects.filter(annee_scolaire=annee, numero=2).first() if annee else None
 
-    for num in range(1, 17):
+    # Année type : 22 semaines en S1 puis 23 semaines en S2.
+    total = 45
+    bascule = 22
+    for num in range(1, total + 1):
         Semaine.objects.get_or_create(
             annee_scolaire=annee,
             numero=num,
-            defaults={'semestre': s1, 'active': True}
+            defaults={
+                'semestre': s1 if num <= bascule else s2,
+                'active': True,
+            },
         )
-    return JsonResponse({'message': '16 semaines initialisées avec succès'})
+    return JsonResponse({'message': f'{total} semaines initialisées avec succès'})
 
 
 def get_creneaux_compat(request):
@@ -1019,7 +1048,12 @@ def salle_detail(request, pk):
 @csrf_exempt
 def modules_collection(request):
     if request.method == 'GET':
-        modules = Module.objects.prefetch_related('types_salles_compatibles').all().order_by('code')
+        modules = (
+            Module.objects
+            .prefetch_related('types_salles_compatibles', 'prerequis')
+            .all()
+            .order_by('code')
+        )
         return JsonResponse([_module_data(m) for m in modules], safe=False)
 
     if request.method != 'POST':
@@ -1052,6 +1086,7 @@ def modules_collection(request):
                 module.types_salles_compatibles.set(
                     TypeSalle.objects.filter(id__in=[_int_or_none(x) for x in types_ids if _int_or_none(x)])
                 )
+            _set_module_prerequis(module, data)
     except IntegrityError as exc:
         return _error(f'Impossible de créer le module : {exc}')
     module.refresh_from_db()
@@ -1096,6 +1131,8 @@ def module_detail(request, pk):
             module.types_salles_compatibles.set(
                 TypeSalle.objects.filter(id__in=[_int_or_none(x) for x in types_ids if _int_or_none(x)])
             )
+        if 'prerequis_ids' in data or 'prerequis_codes' in data:
+            _set_module_prerequis(module, data)
         return JsonResponse(_module_data(module))
 
     if request.method == 'DELETE':

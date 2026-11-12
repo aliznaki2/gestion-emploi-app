@@ -2,12 +2,11 @@ import { useState, useEffect } from 'react'
 import Navbar from './components/Navbar/Navbar'
 import Hero from './components/Hero/Hero'
 import About from './components/About/About'
-import Formations from './components/Formations/Formations'
-import Actualites from './components/Actualites/Actualites'
 import Footer from './components/Footer/Footer'
 import Login from './components/Login/Login'
 import Dashboard from './components/Dashboard/Dashboard'
 import EspaceFormateur from './components/EspaceFormateur/EspaceFormateur'
+import SubscriptionModal from './components/SubscriptionModal/SubscriptionModal'
 
 const ROLE_STORAGE_KEY = 'gestemploi_role'
 const EMAIL_STORAGE_KEY = 'gestemploi_email'
@@ -33,6 +32,7 @@ function App() {
       return ''
     }
   })
+  const [showSubscription, setShowSubscription] = useState(false)
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -62,6 +62,9 @@ function App() {
     setCurrentView('home')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
+
+  const openSubscription = () => setShowSubscription(true)
+  const closeSubscription = () => setShowSubscription(false)
 
   const handleLoginSuccess = (role, identifier = '') => {
     setUserRole(role)
@@ -104,14 +107,13 @@ function App() {
 
   return (
     <div className="app">
-      <Navbar onNavigateToLogin={navigateToLogin} />
+      <Navbar onNavigateToLogin={navigateToLogin} onSubscribe={openSubscription} />
       <main>
-        <Hero />
-        <About />
-        <Formations />
-        <Actualites />
+        <Hero onNavigateToLogin={navigateToLogin} onSubscribe={openSubscription} />
+        <About onSubscribe={openSubscription} />
       </main>
-      <Footer onNavigateToLogin={navigateToLogin} />
+      <Footer onNavigateToLogin={navigateToLogin} onSubscribe={openSubscription} />
+      {showSubscription && <SubscriptionModal onClose={closeSubscription} />}
     </div>
   )
 }

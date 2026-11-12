@@ -1,7 +1,16 @@
 import { useState } from 'react'
+import InstituteSwitcher from '../InstituteSwitcher/InstituteSwitcher'
+import { APP_NAME, AUTHORITY, NETWORK_NAME, useInstitute } from '../../config/branding'
 import './Login.css'
 
+const ASIDE_POINTS = [
+  'Un espace de travail par institut ISTA',
+  'Génération automatique des emplois du temps',
+  'Validation par l’administration et les formateurs',
+]
+
 export default function Login({ onBackHome, onLoginSuccess }) {
+  const [institute] = useInstitute()
   const [role, setRole] = useState('admin') // 'admin' | 'formateur'
   const [identifier, setIdentifier] = useState('admin@ofppt-ntic.ma')
   const [password, setPassword] = useState('••••••••••')
@@ -47,7 +56,7 @@ export default function Login({ onBackHome, onLoginSuccess }) {
 
   return (
     <div className="login-page" id="login-page">
-      
+
       {/* ── Top Bar ── */}
       <header className="login-page__topbar">
         <div className="container login-page__topbar-inner">
@@ -67,8 +76,8 @@ export default function Login({ onBackHome, onLoginSuccess }) {
           <div className="login-page__brand">
             <img src="/ofppt.png" alt="OFPPT" className="login-page__ofppt-logo" />
             <div className="login-page__brand-text">
-              <span className="login-page__brand-name">ISTA NTIC 2</span>
-              <span className="login-page__brand-sub">Sidi Maârouf · Casablanca</span>
+              <span className="login-page__brand-name">{APP_NAME}</span>
+              <span className="login-page__brand-sub">{NETWORK_NAME} · {AUTHORITY.short}</span>
             </div>
           </div>
         </div>
@@ -77,15 +86,63 @@ export default function Login({ onBackHome, onLoginSuccess }) {
       {/* ── Main Container ── */}
       <div className="login-page__main container">
         <div className="login-card">
-          {/* Login Form */}
+
+          {/* ── Brand aside ── */}
+          <aside className="login-card__aside">
+            <div className="login-card__aside-glow" aria-hidden="true"></div>
+
+            <div className="login-card__aside-brand">
+              <img src="/ofppt.png" alt="OFPPT" className="login-card__aside-logo" />
+              <div>
+                <span className="login-card__aside-name">{APP_NAME}</span>
+                <span className="login-card__aside-sub">{NETWORK_NAME} · {AUTHORITY.short}</span>
+              </div>
+            </div>
+
+            <h2 className="login-card__aside-title">
+              Un seul espace pour tous les instituts ISTA.
+            </h2>
+            <p className="login-card__aside-desc">
+              Centralisez vos groupes, formateurs et salles, puis générez des emplois du temps
+              sans conflit en quelques secondes.
+            </p>
+
+            <ul className="login-card__aside-points">
+              {ASIDE_POINTS.map((point) => (
+                <li key={point}>
+                  <span className="login-card__aside-check" aria-hidden="true">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  </span>
+                  {point}
+                </li>
+              ))}
+            </ul>
+
+            <div className="login-card__aside-workspace">
+              <span className="login-card__aside-workspace-label">Espace de travail</span>
+              <InstituteSwitcher variant="dark" />
+            </div>
+
+            <p className="login-card__aside-foot">
+              Établissement public de formation professionnelle · {AUTHORITY.short}
+            </p>
+          </aside>
+
+          {/* ── Login Form ── */}
           <div className="login-card__form-area">
-            
+
             <div className="login-card__header">
               <span className="login-card__pretitle">Portail d'authentification</span>
               <h1 className="login-card__title">Connexion à votre compte</h1>
               <p className="login-card__subtitle">
                 Sélectionnez votre profil pour accéder à votre espace de travail.
               </p>
+              <div className="login-card__institute-chip">
+                <span className="login-card__institute-dot" aria-hidden="true"></span>
+                {institute.name} · {institute.city}
+              </div>
             </div>
 
             {/* Profile Tabs (Administration and Formateur only) */}
@@ -134,11 +191,11 @@ export default function Login({ onBackHome, onLoginSuccess }) {
                 </div>
                 <h3>Connexion réussie !</h3>
                 <p>
-                  Bienvenue sur votre espace <strong>{role === 'admin' ? 'Administrateur' : 'Formateur'}</strong> ISTA NTIC 2.
+                  Bienvenue sur votre espace <strong>{role === 'admin' ? 'Administrateur' : 'Formateur'}</strong>.
                 </p>
                 <div className="login-success-info">
                   <span>Identifiant : {identifier}</span>
-                  <span>Établissement : ISTA NTIC 2 Sidi Maârouf</span>
+                  <span>Institut : {institute.name}</span>
                 </div>
                 <button
                   type="button"
@@ -150,7 +207,7 @@ export default function Login({ onBackHome, onLoginSuccess }) {
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="login-form">
-                
+
                 {/* Identifier Input */}
                 <div className="form-group">
                   <label htmlFor="user-id" className="form-label">
@@ -172,7 +229,7 @@ export default function Login({ onBackHome, onLoginSuccess }) {
                       onChange={(e) => setIdentifier(e.target.value)}
                       placeholder={
                         role === 'admin'
-                          ? 'ex: admin@ofppt-ntic.ma'
+                          ? 'ex: admin@ofppt.ma'
                           : 'ex: nom.prenom@ofppt.ma'
                       }
                       className="form-input"
@@ -192,7 +249,7 @@ export default function Login({ onBackHome, onLoginSuccess }) {
                       className="form-forgot-link"
                       onClick={(e) => {
                         e.preventDefault()
-                        alert('Pour réinitialiser votre mot de passe, veuillez contacter le secrétariat ISTA NTIC 2 à istanticsm@gmail.com')
+                        alert(`Pour réinitialiser votre mot de passe, veuillez contacter le secrétariat de ${institute.name} à ${institute.email}`)
                       }}
                     >
                       Mot de passe oublié ?
@@ -302,7 +359,7 @@ export default function Login({ onBackHome, onLoginSuccess }) {
                   </svg>
                   <span>
                     Problème d'accès ? Contactez le support :&nbsp;
-                    <a href="mailto:istanticsm@gmail.com">istanticsm@gmail.com</a>
+                    <a href={`mailto:${institute.email}`}>{institute.email}</a>
                   </span>
                 </div>
 

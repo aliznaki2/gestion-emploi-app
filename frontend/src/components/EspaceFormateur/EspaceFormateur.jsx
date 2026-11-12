@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { APP_NAME, useInstitute } from '../../config/branding'
 import './EspaceFormateur.css'
 
 const API = 'http://localhost:3001/api'
@@ -141,6 +142,7 @@ const SemaineSelect = ({ semaines, semaine, onChange }) => (
  *  - Mon Profil : fiche personnelle et demandes de modification validées par l'administration.
  */
 export default function EspaceFormateur({ email = '', onLogout }) {
+  const [institute] = useInstitute()
   const [activePage, setActivePage] = useState('accueil')
 
   const [professeurs, setProfesseurs] = useState([])
@@ -741,8 +743,8 @@ export default function EspaceFormateur({ email = '', onLogout }) {
     <div className="espace-formateur">
       <header className="espace-formateur__topbar">
         <div className="espace-formateur__brand">
-          <h1>GestEmploi</h1>
-          <span>ISTA NTIC 2 · Sidi Maârouf</span>
+          <h1>{APP_NAME}</h1>
+          <span>{institute.name} · {institute.district}</span>
         </div>
 
         <div className="ef-topbar-right">
@@ -1652,7 +1654,7 @@ export default function EspaceFormateur({ email = '', onLogout }) {
       </main>
 
       <footer className="espace-formateur__footer">
-        OFPPT — Institut Spécialisé de Technologie Appliquée NTIC 2
+        OFPPT — {institute.fullName}
       </footer>
     </div>
   )

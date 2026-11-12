@@ -124,6 +124,7 @@ class Donnees:
                 'unite_groupes__groupe',
                 'unite_professeurs__professeur',
                 'passages',
+                'module__prerequis',
             )
         )
         if semaine.semestre_id:

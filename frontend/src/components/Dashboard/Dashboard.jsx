@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react'
+import InstituteSwitcher from '../InstituteSwitcher/InstituteSwitcher'
+import { APP_NAME, NETWORK_NAME, useInstitute } from '../../config/branding'
 import './Dashboard.css'
 
 const API = 'http://localhost:3001/api'
@@ -69,12 +71,12 @@ for (const j of JOURS) {
 const SECTIONS = [
   { id: 'dev_1', order: 1, title: 'DÉVELOPPEMENT DIGITAL — 1ÈRE ANNÉE', short: 'DEV 1ère Année' },
   { id: 'dev_2', order: 2, title: 'DÉVELOPPEMENT DIGITAL — 2ÈME ANNÉE (OPTION WEB FULL STACK)', short: 'DEV 2ème Année' },
-  { id: 'id_1',  order: 3, title: 'INFRASTRUCTURE DIGITALE — 1ÈRE ANNÉE', short: 'ID 1ère Année' },
-  { id: 'id_2',  order: 4, title: 'INFRASTRUCTURE DIGITALE — 2ÈME ANNÉE (SYSTÈMES & RÉSEAUX)', short: 'ID 2ème Année' },
-  { id: 'ge_1',  order: 5, title: 'GESTION DES ENTREPRISES — 1ÈRE ANNÉE', short: 'GE 1ère Année' },
-  { id: 'ge_2',  order: 6, title: 'GESTION DES ENTREPRISES — 2ÈME ANNÉE', short: 'GE 2ème Année' },
-  { id: 'ge_3',  order: 7, title: 'GESTION DES ENTREPRISES — 3ÈME ANNÉE', short: 'GE 3ème Année' },
-  { id: 'tsm',   order: 8, title: 'Technicien Spécialisé en Météorologie', short: 'TSM Météorologie' },
+  { id: 'id_1', order: 3, title: 'INFRASTRUCTURE DIGITALE — 1ÈRE ANNÉE', short: 'ID 1ère Année' },
+  { id: 'id_2', order: 4, title: 'INFRASTRUCTURE DIGITALE — 2ÈME ANNÉE (SYSTÈMES & RÉSEAUX)', short: 'ID 2ème Année' },
+  { id: 'ge_1', order: 5, title: 'GESTION DES ENTREPRISES — 1ÈRE ANNÉE', short: 'GE 1ère Année' },
+  { id: 'ge_2', order: 6, title: 'GESTION DES ENTREPRISES — 2ÈME ANNÉE', short: 'GE 2ème Année' },
+  { id: 'ge_3', order: 7, title: 'GESTION DES ENTREPRISES — 3ÈME ANNÉE', short: 'GE 3ème Année' },
+  { id: 'tsm', order: 8, title: 'Technicien Spécialisé en Météorologie', short: 'TSM Météorologie' },
   { id: 'autre', order: 9, title: 'AUTRES SECTIONS', short: 'Autres' },
 ]
 
@@ -121,7 +123,7 @@ const apiFetch = async (url, opts = {}) => {
       const details = Array.isArray(e.details) ? e.details.join(' ') : e.details
       errMsg = e.error || e.message || e.detail || details || errMsg
       if (details && !String(errMsg).includes(details)) errMsg = `${errMsg} ${details}`
-    } catch {}
+    } catch { }
     throw new Error(errMsg)
   }
   return r.json()
@@ -258,7 +260,7 @@ function SearchableSelect({
           tabIndex={-1}
           required
           value=""
-          onChange={() => {}}
+          onChange={() => { }}
           style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }}
         />
       )}
@@ -878,7 +880,7 @@ function GroupeModal({ groupe, filieres, onClose, onSave }) {
             type="button"
             style={{ fontSize: 20, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}
           >
-            
+
           </button>
         </div>
 
@@ -1062,7 +1064,7 @@ function ProfesseurModal({ prof, salles = [], onClose, onSave }) {
             type="button"
             style={{ fontSize: 20, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}
           >
-            
+
           </button>
         </div>
 
@@ -1746,7 +1748,7 @@ function SalleModal({ salle, typesSalles, onClose, onSave }) {
             type="button"
             style={{ fontSize: 20, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}
           >
-            
+
           </button>
         </div>
 
@@ -1844,7 +1846,7 @@ function DeleteSalleModal({ salle, onClose, onConfirm, loading }) {
 }
 
 // ─── Modal Créer / Modifier Module ───────────────────────────────────────────
-function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
+function ModuleModal({ module, modules = [], typesSalles = [], onClose, onSave }) {
   const isEdit = Boolean(module?.id)
   const [code, setCode] = useState(module?.code || '')
   const [intitule, setIntitule] = useState(module?.intitule || '')
@@ -1859,6 +1861,12 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
   const [typesCompatibles, setTypesCompatibles] = useState(
     module?.types_salles_ids || module?.types_salles_compatibles || []
   )
+  const [prerequisIds, setPrerequisIds] = useState(
+    Array.isArray(module?.prerequis_ids)
+      ? module.prerequis_ids.map(Number)
+      : (module?.prerequis || []).map(p => p.id)
+  )
+  const [prerequisSearch, setPrerequisSearch] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -1867,6 +1875,21 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     )
   }
+
+  const togglePrerequis = (id) => {
+    setPrerequisIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
+  const modulesPrerequis = modules
+    .filter(m => String(m.id) !== String(module?.id))
+    .filter(m => {
+      const q = prerequisSearch.trim().toLowerCase()
+      if (!q) return true
+      return (m.code || '').toLowerCase().includes(q)
+        || (m.intitule || '').toLowerCase().includes(q)
+    })
 
   const handleSubmit = async (e) => {
     e?.preventDefault()
@@ -1891,6 +1914,7 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
         seances_2_5_autorisees: seances25,
         heures_hebdomadaires: heuresHebdo === '' ? 0 : +heuresHebdo,
         types_salles_compatibles: typesCompatibles.map(Number),
+        prerequis_ids: prerequisIds.map(Number),
       }
       const res = isEdit
         ? await apiFetch(`${API}/modules/${module.id}`, { method: 'PUT', body: JSON.stringify(payload) })
@@ -2002,6 +2026,39 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
               Volume horaire planifié chaque semaine pour ce module, pour chaque groupe
               qui l'étudie. Les séances sont arrondies à 2,5 h (ou à 5 h si les séances
               de 2,5 h sont désactivées).
+            </div>
+          </div>
+
+          <div className="modal-field">
+            <label>Modules prérequis</label>
+            <input
+              type="text"
+              placeholder="Rechercher un module (code ou intitulé)…"
+              value={prerequisSearch}
+              onChange={e => setPrerequisSearch(e.target.value)}
+              style={{ marginBottom: 8 }}
+            />
+            <div style={{
+              maxHeight: 150, overflowY: 'auto', border: '1px solid #e2e8f0',
+              borderRadius: 8, padding: '8px 10px', background: '#f8fafc'
+            }}>
+              {modulesPrerequis.length === 0 ? (
+                <div style={{ fontSize: 12, color: '#94a3b8' }}>Aucun module disponible.</div>
+              ) : modulesPrerequis.map(m => (
+                <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#334155', padding: '3px 0' }}>
+                  <input
+                    type="checkbox"
+                    checked={prerequisIds.includes(m.id)}
+                    onChange={() => togglePrerequis(m.id)}
+                    style={{ width: 15, height: 15, cursor: 'pointer' }}
+                  />
+                  <strong>{m.code}</strong> — {m.intitule}
+                </label>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, lineHeight: 1.5 }}>
+              Le moteur planifie ce module après la fin de chacun de ses prérequis.
+              Laissez vide pour ne poser aucune contrainte.
             </div>
           </div>
 
@@ -2506,7 +2563,110 @@ function DeleteIndispoModal({ indispo, onClose, onConfirm, loading }) {
 }
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
+const DASH_NAV = [
+  {
+    id: 'emploi',
+    label: 'Emploi du temps',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+        <line x1="16" y1="2" x2="16" y2="6" />
+        <line x1="8" y1="2" x2="8" y2="6" />
+        <line x1="3" y1="10" x2="21" y2="10" />
+      </svg>
+    ),
+  },
+  {
+    id: 'groupes',
+    label: 'Groupes',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    ),
+  },
+  {
+    id: 'profs',
+    label: 'Formateurs',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
+        <path d="M6 12v5c3 3 9 3 12 0v-5" />
+      </svg>
+    ),
+  },
+  {
+    id: 'affectations',
+    label: 'Affectations',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+      </svg>
+    ),
+  },
+  {
+    id: 'demandes',
+    label: 'Demandes profil',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+        <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'salles',
+    label: 'Salles',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M3 21h18" />
+        <path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16" />
+        <path d="M14 12h.01" />
+      </svg>
+    ),
+  },
+  {
+    id: 'modules',
+    label: 'Modules',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'filieres',
+    label: 'Filières',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <polygon points="12 2 2 7 12 12 22 7 12 2" />
+        <polyline points="2 17 12 22 22 17" />
+        <polyline points="2 12 12 17 22 12" />
+      </svg>
+    ),
+  },
+  {
+    id: 'indispos',
+    label: 'Période-off',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+        <line x1="16" y1="2" x2="16" y2="6" />
+        <line x1="8" y1="2" x2="8" y2="6" />
+        <line x1="3" y1="10" x2="21" y2="10" />
+        <line x1="9" y1="15" x2="15" y2="15" />
+      </svg>
+    ),
+  },
+]
+
 export default function Dashboard({ role = 'admin', onLogout }) {
+  const [institute] = useInstitute()
   const [activeNav, setActiveNav] = useState('emploi')
   const [semaines, setSemaines] = useState([])
   const [selectedSemaine, setSelectedSemaine] = useState(null)
@@ -2886,13 +3046,13 @@ export default function Dashboard({ role = 'admin', onLogout }) {
 
     groupes.forEach(g => {
       const filiere = filieres.find(f => f.id === g.filiere_id)
-      ;(filiere?.module_ids || []).forEach(moduleId => {
-        const module = modules.find(m => m.id === moduleId)
-        if (!module) return
-        const key = `${g.id}-${moduleId}`
-        vus.add(key)
-        rows.push(construireRow(g, filiere, module, parCouple.get(key) || []))
-      })
+        ; (filiere?.module_ids || []).forEach(moduleId => {
+          const module = modules.find(m => m.id === moduleId)
+          if (!module) return
+          const key = `${g.id}-${moduleId}`
+          vus.add(key)
+          rows.push(construireRow(g, filiere, module, parCouple.get(key) || []))
+        })
     })
 
     // Affectations existantes dont le module n'est plus coché dans la filière.
@@ -3022,7 +3182,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
       'success'
     )
     setAffectationRow(null)
-    apiFetch(`${API}/professeurs`).then(setProfesseurs).catch(() => {})
+    apiFetch(`${API}/professeurs`).then(setProfesseurs).catch(() => { })
   }
 
   const handleDeleteAffectationConfirm = async () => {
@@ -3054,7 +3214,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
         addToast(res.message || 'Besoin supprimé.', 'success')
       }
       setDeletingAffectation(null)
-      apiFetch(`${API}/professeurs`).then(setProfesseurs).catch(() => {})
+      apiFetch(`${API}/professeurs`).then(setProfesseurs).catch(() => { })
     } catch (err) {
       addToast(err.message || "Erreur lors du retrait de l'affectation", 'error')
     } finally {
@@ -3159,7 +3319,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
     setFiliereModalOpen(false)
     setEditingFiliere(null)
     // Un nouveau secteur a pu être créé depuis la modale : rafraîchir la liste.
-    apiFetch(`${API}/secteurs`).then(setSecteurs).catch(() => {})
+    apiFetch(`${API}/secteurs`).then(setSecteurs).catch(() => { })
   }
 
   const handleDeleteFiliereConfirm = async () => {
@@ -3370,7 +3530,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.setAttribute('href', url)
-    link.setAttribute('download', `Emploi_NTIC2_Semaine_${selectedSemaine.numero}.csv`)
+    link.setAttribute('download', `Emploi_${institute.groupPrefix}_Semaine_${selectedSemaine.numero}.csv`)
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -3388,41 +3548,47 @@ export default function Dashboard({ role = 'admin', onLogout }) {
       {/* ── Sidebar ── */}
       <aside className="dash-sidebar">
         <div className="dash-sidebar-logo">
-          <div>
-            <h2>GestEmploi</h2>
-            <span>ISTA NTIC 2</span>
+          <span className="dash-sidebar-brand-mark" aria-hidden="true">G</span>
+          <div className="dash-sidebar-brand-text">
+            <h2>{APP_NAME}</h2>
+            <span>{NETWORK_NAME} · OFPPT</span>
           </div>
         </div>
 
-        <nav className="dash-nav">
-          {[
-            { id: 'emploi',  label: 'Emploi du temps' },
-            { id: 'groupes', label: 'Groupes' },
-            { id: 'profs',   label: 'Formateurs' },
-            { id: 'affectations', label: 'Affectations' },
-            { id: 'demandes', label: 'Demandes profil' },
-            { id: 'salles',  label: 'Salles' },
-            { id: 'modules', label: 'Modules' },
-            { id: 'filieres', label: 'Filières' },
-            { id: 'indispos', label: 'Congés / Jours libres' },
-          ].map(item => (
+        <div className="dash-sidebar-workspace">
+          <span className="dash-sidebar-workspace-label">Espace de travail</span>
+          <InstituteSwitcher variant="dark" />
+        </div>
+
+        <nav className="dash-nav" aria-label="Navigation du tableau de bord">
+          <span className="dash-nav-section">Pilotage</span>
+          {DASH_NAV.map(item => (
             <button
               key={item.id}
               className={`dash-nav-item ${activeNav === item.id ? 'active' : ''}`}
               onClick={() => setActiveNav(item.id)}
+              title={item.label}
             >
+              <span className="nav-icon" aria-hidden="true">{item.icon}</span>
               <span>{item.label}</span>
             </button>
           ))}
         </nav>
 
         <div className="dash-sidebar-footer">
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', marginBottom: 10, paddingLeft: 12 }}>
-            Base de données: <span style={{ color: dbStatus === 'ok' ? '#4ade80' : '#f87171', fontWeight: 600 }}>
+          <div className="dash-db-status">
+            <span className="dash-db-dot" style={{ background: dbStatus === 'ok' ? '#4ade80' : '#f87171' }} aria-hidden="true"></span>
+            <span>Base de données</span>
+            <strong style={{ color: dbStatus === 'ok' ? '#4ade80' : '#f87171' }}>
               {dbStatus === 'ok' ? 'Connectée' : 'Erreur'}
-            </span>
+            </strong>
           </div>
           <button className="dash-logout-btn" onClick={onLogout}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
             <span>Déconnexion</span>
           </button>
         </div>
@@ -3431,27 +3597,60 @@ export default function Dashboard({ role = 'admin', onLogout }) {
       {/* ── Main Area ── */}
       <main className="dash-main">
         <header className="dash-topbar">
-          <h1>
-            {activeNav === 'emploi'  && 'Emploi du temps — ISTA NTIC 2'}
-            {activeNav === 'groupes' && 'Gestion des Groupes'}
-            {activeNav === 'profs'   && 'Gestion des Formateurs'}
-            {activeNav === 'affectations' && 'Affectations Groupe + Module'}
-        {activeNav === 'demandes' && 'Validation des profils formateurs'}
-            {activeNav === 'salles'  && 'Salles et Locaux'}
-            {activeNav === 'modules' && 'Gestion des Modules'}
-            {activeNav === 'filieres' && 'Gestion des Filières'}
-            {activeNav === 'indispos' && 'Congés & Jours libres'}
-          </h1>
+          <div className="dash-topbar-heading">
+            <h1>
+              {activeNav === 'emploi' && 'Emploi du temps'}
+              {activeNav === 'groupes' && 'Gestion des Groupes'}
+              {activeNav === 'profs' && 'Gestion des Formateurs'}
+              {activeNav === 'affectations' && 'Affectations Groupe + Module'}
+              {activeNav === 'demandes' && 'Validation des profils formateurs'}
+              {activeNav === 'salles' && 'Salles et Locaux'}
+              {activeNav === 'modules' && 'Gestion des Modules'}
+              {activeNav === 'filieres' && 'Gestion des Filières'}
+              {activeNav === 'indispos' && 'Congés & Jours libres'}
+            </h1>
+            <p className="dash-topbar-sub">
+              {institute.name} · {institute.district}, {institute.city}
+            </p>
+          </div>
           <div className="topbar-right">
-            <span style={{ fontSize: 13, color: '#475569', fontWeight: 500 }}>
-              {role === 'admin' ? 'Administrateur' : 'Formateur'}
+            <span className="dash-topbar-institute">
+              <span className="dash-topbar-institute-dot" aria-hidden="true"></span>
+              {institute.code}
             </span>
+            <div className="dash-topbar-user">
+              <span className="dash-topbar-avatar" aria-hidden="true">
+                {role === 'admin' ? 'AD' : 'FO'}
+              </span>
+              <div className="dash-topbar-user-text">
+                <strong>{role === 'admin' ? 'Administrateur' : 'Formateur'}</strong>
+                <span>{institute.shortName}</span>
+              </div>
+            </div>
           </div>
         </header>
 
         <div className="dash-content">
           {activeNav === 'emploi' && (
             <>
+              {/* ── KPI Overview ── */}
+              <div className="stats-grid">
+                {[
+                  { id: 'seances', label: 'Séances cette semaine', value: seances.length, tone: 'blue', icon: DASH_NAV[0].icon },
+                  { id: 'groupes', label: 'Groupes actifs', value: groupes.length, tone: 'green', icon: DASH_NAV[1].icon },
+                  { id: 'formateurs', label: 'Formateurs', value: professeurs.length, tone: 'violet', icon: DASH_NAV[2].icon },
+                  { id: 'salles', label: 'Salles', value: salles.length, tone: 'amber', icon: DASH_NAV[5].icon },
+                ].map(kpi => (
+                  <div key={kpi.id} className="stat-card">
+                    <div className={`stat-icon ${kpi.tone}`} aria-hidden="true">{kpi.icon}</div>
+                    <div className="stat-info">
+                      <h3>{kpi.value}</h3>
+                      <p>{kpi.label}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
               {/* ── Controls Bar ── */}
               <div className="controls-bar">
                 {/* Week selector */}
@@ -3564,7 +3763,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
               {/* ── Official Header ── */}
               <div style={{ textAlign: 'center', margin: '16px 0 12px' }}>
                 <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0f2d5e' }}>
-                  Emploi du temps - NTIC2
+                  Emploi du temps — {institute.shortName}
                 </h2>
                 {selectedSemaine && (
                   <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: 13 }}>
@@ -3959,7 +4158,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                       {filteredGroupesList.length === 0 ? (
                         <tr>
                           <td colSpan={8} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
-                            
+
                             <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>Aucun groupe trouvé</div>
                             <div style={{ fontSize: 13, marginTop: 4 }}>Essayez de modifier vos critères de recherche</div>
                           </td>
@@ -4239,7 +4438,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                       {filteredProfsList.length === 0 ? (
                         <tr>
                           <td colSpan={10} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
-                            
+
                             <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>Aucun formateur trouvé</div>
                             <div style={{ fontSize: 13, marginTop: 4 }}>Modifiez votre filtre ou terme de recherche</div>
                           </td>
@@ -5167,7 +5366,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
                 {filteredSallesList.length === 0 ? (
                   <div style={{ gridColumn: '1 / -1', background: '#fff', borderRadius: 12, padding: 48, textAlign: 'center', color: '#94a3b8', border: '1px solid #e2e8f0' }}>
-                    
+
                     <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>Aucune salle trouvée</div>
                     <div style={{ fontSize: 13, marginTop: 4 }}>Modifiez votre filtre ou terme de recherche</div>
                   </div>
@@ -5205,7 +5404,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                         <div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                              
+
                               <div>
                                 <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#0f2d5e' }}>{s.nom}</h3>
                                 <span style={{ fontSize: 12, color: '#64748b' }}>Salle {s.nom}</span>
@@ -5752,8 +5951,8 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                         >
                           <td style={{ padding: '14px 18px', fontWeight: 600, color: '#0f172a' }}>
                             {i.type_cible === 'tous' ? 'Tous les groupes' :
-                             i.type_cible === 'groupe' ? (i.groupe_code || '—') :
-                             (i.professeur_nom || '—')}
+                              i.type_cible === 'groupe' ? (i.groupe_code || '—') :
+                                (i.professeur_nom || '—')}
                           </td>
                           <td style={{ padding: '14px 18px', color: '#475569' }}>
                             {i.type_periode_libelle || i.type_periode}
@@ -5945,6 +6144,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
       {moduleModalOpen && (
         <ModuleModal
           module={editingModule}
+          modules={modules}
           typesSalles={typesSalles}
           onClose={() => {
             setModuleModalOpen(false)

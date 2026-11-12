@@ -13,6 +13,9 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
+
+from django.db.models import Q
+
 from core.models import (
     Semaine, UniteEnseignement, Groupe, Passage, VolumeHoraire,
     Professeur, Seance, UniteProfesseur, AffectationEnseignement, UniteGroupe,
@@ -42,8 +45,8 @@ class CalculateurHeures:
     Calcule et équilibre le volume horaire pour chaque groupe et unité
     pour une semaine pédagogique donnée.
     """
-    OBJECTIF_MIN_HEURES = 30.0   # 12 créneaux de 2.5h
-    OBJECTIF_MAX_HEURES = 35.0   # 14 créneaux de 2.5h
+    OBJECTIF_MIN_HEURES = 15.0   # 3 blocs de 5 h
+    OBJECTIF_MAX_HEURES = 25.0   # 5 blocs de 5 h
     DUREE_CRENEAU = 2.5
 
     def __init__(self, semaine: Semaine, total_semaines_semestre: int = 16):
@@ -86,10 +89,14 @@ class CalculateurHeures:
                  profs_jours_off: Optional[Dict[int, set]] = None) -> List[UnitePrevision]:
         """Calcule les prévisions à partir des paramètres de l'interface admin.
 
-        Pour chaque groupe, les modules planifiés sont ceux cochés dans sa
-        filière, avec les heures/semaine définies sur le module. Les formateurs
-        sont ceux affectés au couple (module, groupe) dans la fiche formateur ;
-        si aucun n'est affecté, les séances sont générées sans formateur.
+        Pour chaque groupe, les unités planifiées sont celles qui lui sont
+        réellement rattachées (``UniteGroupe``) pour le semestre courant. Les
+        heures/semaine viennent du module. Les formateurs sont ceux affectés au
+        couple (module, groupe) dans la fiche formateur ; si aucun n'est
+        affecté, les séances sont générées sans formateur.
+
+        Un repli sur ``filiere.modules`` reste assuré pour les groupes dont les
+        unités n'ont pas encore été créées.
         """
         groupes_off_semaine = groupes_off_semaine or set()
         profs_jours_off = profs_jours_off or {}
@@ -136,6 +143,16 @@ class CalculateurHeures:
                 seance.creneau.duree_h or self.DUREE_CRENEAU
             )
 
+        # Volume déjà consommé par chaque unité lors des semaines précédentes.
+        # Sans cela, le volume restant serait « réétalé » sur les semaines
+        # restantes et les dernières semaines dépasseraient le volume prévu.
+        heures_consommees_unite: Dict[int, float] = defaultdict(float)
+        for unite_id, duree in Seance.objects.filter(
+            semaine__annee_scolaire_id=self.semaine.annee_scolaire_id,
+            semaine__numero__lt=num_semaine,
+        ).values_list('unite_id', 'creneau__duree_h'):
+            heures_consommees_unite[unite_id] += float(duree or self.DUREE_CRENEAU)
+
         # Unités ayant déjà reçu un EFM dans une autre semaine (évite les doublons).
         unites_avec_efm = set(
             Seance.objects.filter(nature=Seance.NATURE_EXAMEN)
@@ -152,45 +169,94 @@ class CalculateurHeures:
         ).values_list('module_id', 'groupe_id', 'professeur_id'):
             profs_par_couple[(module_id, groupe_id)].add(prof_id)
 
-        # Regrouper les besoins par (module, unité d'enseignement).
-        lignes: Dict[tuple, Dict[str, object]] = {}
+        # Unités d'enseignement réellement rattachées aux groupes pour le
+        # semestre de la semaine. C'est la source de vérité : un groupe ne suit
+        # que les UE qui lui sont affectées, et non l'intégralité des modules de
+        # sa filière.
+        unites_qs = (
+            UniteEnseignement.objects.filter(
+                annee_scolaire_id=self.semaine.annee_scolaire_id,
+                unite_groupes__groupe_id__in=groupe_ids_autorises,
+            )
+            .select_related('module', 'volume_horaire')
+            .prefetch_related(
+                'unite_groupes__groupe',
+                'unite_professeurs__professeur',
+                'passages',
+            )
+            .distinct()
+        )
+        if self.semaine.semestre_id:
+            unites_qs = unites_qs.filter(
+                Q(semestre_id=self.semaine.semestre_id) | Q(semestre__isnull=True)
+            )
+
+        # Regrouper les besoins par unité d'enseignement.
+        lignes: Dict[int, Dict[str, object]] = {}
+        unites_vues = set()
+        groupes_couverts = set()
+        for ue in unites_qs:
+            groupe_ids = sorted({
+                ug.groupe_id for ug in ue.unite_groupes.all()
+                if ug.groupe_id in groupe_ids_autorises
+            })
+            if not groupe_ids:
+                continue
+            # Déduplication : même module, même fusion et mêmes groupes.
+            cle = (ue.module_id, ue.code_fusion or '', tuple(groupe_ids))
+            if cle in unites_vues:
+                continue
+            unites_vues.add(cle)
+            lignes[ue.id] = {
+                'module': ue.module,
+                'unite': ue,
+                'groupe_ids': set(groupe_ids),
+            }
+            groupes_couverts.update(groupe_ids)
+
+        # Repli : un groupe sans aucune UE (données incomplètes) conserve les
+        # modules déclarés sur sa filière, comme auparavant.
         for groupe in groupes:
-            if not groupe.filiere_id:
+            if groupe.id in groupes_couverts or not groupe.filiere_id:
                 continue
             for module in groupe.filiere.modules.all():
                 ue = self._unite_pour_module(module, groupe)
                 if ue is None:
                     continue
-                cle = (module.id, ue.id)
-                if cle not in lignes:
-                    lignes[cle] = {
+                if ue.id not in lignes:
+                    lignes[ue.id] = {
                         'module': module,
                         'unite': ue,
                         'groupe_ids': set(),
                     }
-                lignes[cle]['groupe_ids'].add(groupe.id)
+                lignes[ue.id]['groupe_ids'].add(groupe.id)
 
         previsions: List[UnitePrevision] = []
-        for (module_id, unite_id), info in lignes.items():
+        for unite_id, info in lignes.items():
             module = info['module']
             ue = info['unite']
             groupe_ids = sorted(info['groupe_ids'])
+            module_id = module.id
 
             heures = float(getattr(module, 'heures_hebdomadaires', 0.0) or 0.0)
 
-            # Phase 0 : un module général ne se déroule que pendant son passage.
+            # Phase 0 : tous les modules (généraux, régionaux et locaux)
+            # suivent leur passage. L'intensité hebdomadaire vient du
+            # calendrier calculé ; hors période, aucune heure n'est planifiée.
             est_passage = False
             passages = [p for p in ue.passages.all() if p.actif]
-            if module.type_module == 'general' and passages:
+            if passages:
                 actif = next(
-                    (p for p in passages if p.semaine_debut <= num_semaine <= p.semaine_fin),
+                    (
+                        p for p in passages
+                        if p.semaine_debut <= num_semaine <= p.semaine_fin
+                    ),
                     None,
                 )
                 if actif is None:
                     continue
                 est_passage = True
-                intensite = float(actif.intensite_h or 0.0)
-                heures = intensite if heures <= 0 else min(heures, intensite)
+                heures = float(actif.intensite_h or 0.0)
 
             if heures <= 0:
                 continue
@@ -198,15 +264,36 @@ class CalculateurHeures:
                 heures = self.round_to_creneau(heures)
             else:
                 heures = self.plafond_multiple_de_5(heures)
+
+            # Ne jamais dépasser le volume officiel restant de l'unité.
+            volume = getattr(ue, 'volume_horaire', None)
+            if volume is not None:
+                reste = max(
+                    0.0,
+                    float(volume.h_presentiel or 0.0)
+                    - float(volume.heures_effectuees or 0.0)
+                    - heures_consommees_unite.get(unite_id, 0.0),
+                )
+                heures = min(heures, self.plafond_multiple_de_5(reste))
+
             heures -= heures_planifiees_unite.get(unite_id, 0.0)
             if heures <= 0:
                 continue
 
+            # Formateurs présents sur l'unité elle-même (source de vérité),
+            # avec repli sur les besoins (module, groupe) lorsque l'unité
+            # n'a aucune affectation explicite.
             prof_ids = sorted({
-                prof_id
-                for groupe_id in groupe_ids
-                for prof_id in profs_par_couple.get((module_id, groupe_id), ())
+                up.professeur_id
+                for up in ue.unite_professeurs.all()
+                if up.mode == 'presentiel' and up.professeur and up.professeur.actif
             })
+            if not prof_ids:
+                prof_ids = sorted({
+                    prof_id
+                    for groupe_id in groupe_ids
+                    for prof_id in profs_par_couple.get((module_id, groupe_id), ())
+                })
 
             # Formateurs synchrones (distance) et part de synchrone de l'unité.
             prof_sync_ids = sorted({
@@ -302,7 +389,14 @@ class CalculateurHeures:
         groupes_off_semaine = groupes_off_semaine or set()
         profs_jours_off = profs_jours_off or {}
         num_semaine = self.semaine.numero
-        semaines_restantes = max(1, self.total_semaines - num_semaine + 1)
+        if self.semaine.semestre_id:
+            semaines_restantes = max(1, Semaine.objects.filter(
+                annee_scolaire_id=self.semaine.annee_scolaire_id,
+                semestre_id=self.semaine.semestre_id,
+                numero__gte=num_semaine,
+            ).count())
+        else:
+            semaines_restantes = max(1, self.total_semaines - num_semaine + 1)
 
         # Calendrier des semaines pour situer la date de l'EFM d'un module.
         semaines_dates = list(
@@ -455,7 +549,9 @@ class CalculateurHeures:
             if volume:
                 dispo = max(
                     0.0,
-                    float(volume.heures_restantes) - heures_planifiees_unite.get(unite_id, 0.0),
+                    float(volume.heures_restantes)
+                    - heures_consommees_unite.get(unite_id, 0.0)
+                    - heures_planifiees_unite.get(unite_id, 0.0),
                 )
             dispo_unite[unite_id] = dispo
 
@@ -486,14 +582,12 @@ class CalculateurHeures:
             plafond = dispo
             if efm_actif and num_semaine < semaine_efm:
                 if autorise_2_5:
-                    reserve = self.DUREE_CRENEAU
                     pas = self.DUREE_CRENEAU
-                    disponible_enseignement = max(0.0, dispo - reserve)
+                    disponible_enseignement = max(0.0, dispo - self.DUREE_CRENEAU)
                     plafond = (disponible_enseignement // pas) * pas
                 else:
                     # Module en blocs de 5 h uniquement : on réserve un bloc
-                    # complet (5 h) pour la semaine de l'EFM. Aucun résidu de
-                    # 2,5 h ne doit être planifié avant ou pendant l'EFM.
+                    # complet (5 h) pour la semaine de l'EFM.
                     disponible_enseignement = max(0.0, dispo - 5.0)
                     plafond = self.plafond_multiple_de_5(disponible_enseignement)
             plafond_unite[unite_id] = plafond
@@ -506,44 +600,42 @@ class CalculateurHeures:
                     jour_efm = jour
             unite_jour_efm[unite_id] = jour_efm
 
-            if module.type_module == 'general':
-                # Module général : Vérification du Passage actif
-                active_passage = ue.passages.filter(
-                    actif=True,
-                    semaine_debut__lte=num_semaine,
-                    semaine_fin__gte=num_semaine
-                ).first()
+            # Tous les modules suivent leur passage : généraux, régionaux et
+            # locaux. L'intensité hebdomadaire est celle choisie par la phase 0.
+            passages_unite = list(ue.passages.all())
+            active_passage = next(
+                (
+                    p for p in passages_unite
+                    if p.actif
+                    and p.semaine_debut <= num_semaine <= p.semaine_fin
+                ),
+                None,
+            )
+            a_des_passages = any(p.actif for p in passages_unite)
 
-                if active_passage:
-                    heures = min(float(active_passage.intensite_h), plafond)
-                    if autorise_2_5:
-                        unite_heures[unite_id] = self.round_to_creneau(heures)
-                    else:
-                        unite_heures[unite_id] = min(
-                            self.round_to_5_only(heures),
-                            self.plafond_multiple_de_5(plafond),
-                        )
-                    unite_is_passage_map[unite_id] = True
-                else:
-                    # En dehors de la période de passage
-                    unite_heures[unite_id] = 0.0
+            if active_passage is not None:
+                intensite = float(active_passage.intensite_h or 5.0)
+                heures = min(intensite, plafond, dispo)
+                unite_heures[unite_id] = self.plafond_multiple_de_5(heures)
+                unite_is_passage_map[unite_id] = True
+            elif a_des_passages:
+                # En dehors de la période de passage (avant ou après).
+                unite_heures[unite_id] = 0.0
+            elif module.type_module == 'general':
+                unite_heures[unite_id] = 0.0
             else:
-                # Module technique : Formule basée sur les semaines restantes
+                # Repli pour une unité sans passage (données incomplètes).
                 heures_hebdo_brut = plafond / semaines_pour_module
                 if autorise_2_5:
                     heures_arrondies = self.round_to_5(heures_hebdo_brut)
                     heures_arrondies = min(heures_arrondies, plafond)
-                    # Arrondir au multiple de 2.5h (créneau)
                     unite_heures[unite_id] = self.round_to_creneau(heures_arrondies)
                 else:
-                    # Séances de 5 h uniquement : multiple de 5 sans dépasser le reste
                     heures_arrondies = self.round_to_5_only(heures_hebdo_brut)
-                    heures_arrondies = min(heures_arrondies, self.plafond_multiple_de_5(plafond))
+                    heures_arrondies = min(
+                        heures_arrondies, self.plafond_multiple_de_5(plafond)
+                    )
                     unite_heures[unite_id] = heures_arrondies
-
-                    # Semaine de l'EFM : on termine le module en blocs de 5 h.
-                    # Un éventuel résidu de 2,5 h n'est pas planifié : aucune
-                    # séance isolée de 2,5 h pour un module qui ne l'autorise pas.
                     if est_semaine_efm and efm_actif:
                         unite_heures[unite_id] = self.plafond_multiple_de_5(dispo)
 
@@ -643,6 +735,7 @@ class CalculateurHeures:
                 uids_techniques = [
                     uid for uid in uids
                     if unite_obj_map[uid].module.type_module == 'technique'
+                    and not unite_is_passage_map.get(uid, False)
                 ]
                 uids_techniques.sort(
                     key=lambda uid: (dispo_unite.get(uid, 0.0) - unite_heures.get(uid, 0.0)),
@@ -671,6 +764,7 @@ class CalculateurHeures:
                     uid for uid in uids
                     if unite_obj_map[uid].module.type_module == 'technique'
                     and unite_heures.get(uid, 0.0) > self.DUREE_CRENEAU
+                    and not unite_is_passage_map.get(uid, False)
                 ]
                 uids_techniques.sort(key=lambda uid: unite_heures.get(uid, 0.0), reverse=True)
 
@@ -697,6 +791,7 @@ class CalculateurHeures:
                 candidats = [
                     uid for uid in uids
                     if unite_heures.get(uid, 0.0) >= pas_min(uid) - 1e-6
+                    and not unite_is_passage_map.get(uid, False)
                 ]
                 if not candidats:
                     break
@@ -730,6 +825,7 @@ class CalculateurHeures:
             uids = [
                 uid for uid in groupe_unites_map.get(gid, [])
                 if unite_obj_map[uid].module.type_module == 'technique'
+                and not unite_is_passage_map.get(uid, False)
             ]
             uids.sort(
                 key=lambda uid: (dispo_unite.get(uid, 0.0) - unite_heures.get(uid, 0.0)),

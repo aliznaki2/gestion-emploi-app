@@ -21,7 +21,10 @@
 /* ── Page Wrapper ── */
 .login-page {
   min-height: 100vh;
-  background: var(--l-bg);
+  background:
+    radial-gradient(900px 520px at 12% 0%, rgba(26, 95, 168, 0.11) 0%, rgba(26, 95, 168, 0) 62%),
+    radial-gradient(820px 520px at 92% 100%, rgba(37, 117, 201, 0.1) 0%, rgba(37, 117, 201, 0) 62%),
+    #f4f7fb;
   display: flex;
   flex-direction: column;
   font-family: 'Inter', system-ui, sans-serif;
@@ -29,8 +32,10 @@
 
 /* ── Top Bar ── */
 .login-page__topbar {
-  background: var(--l-white);
-  border-bottom: 1px solid var(--l-border);
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
   padding: 12px 0;
   position: sticky;
   top: 0;
@@ -102,28 +107,173 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 48px 20px;
+  padding: 44px 20px;
 }
 
 /* ── Card ── */
 .login-card {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
   width: 100%;
-  max-width: 440px;
+  max-width: 960px;
   background: var(--l-white);
-  border: 1px solid var(--l-border);
-  border-radius: 10px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  box-shadow:
+    0 34px 80px rgba(15, 23, 42, 0.14),
+    0 8px 24px rgba(15, 23, 42, 0.06);
   overflow: hidden;
 }
 
-/* The aside is removed — keep for unused CSS */
-.login-card__aside { display: none; }
+/* ── Brand aside ── */
+.login-card__aside {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 36px 34px;
+  background: linear-gradient(160deg, #0b2547 0%, #123f74 46%, #1a5fa8 100%);
+  color: #ffffff;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.login-card__aside-glow {
+  position: absolute;
+  width: 340px;
+  height: 340px;
+  right: -120px;
+  top: -110px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.35) 0%, rgba(56, 189, 248, 0) 70%);
+  z-index: -1;
+}
+
+.login-card__aside::after {
+  content: '';
+  position: absolute;
+  inset: auto -80px -120px auto;
+  width: 260px;
+  height: 260px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  z-index: -1;
+}
+
+.login-card__aside-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.login-card__aside-logo {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  background: #ffffff;
+  border-radius: 9px;
+  padding: 4px;
+  flex-shrink: 0;
+}
+
+.login-card__aside-name {
+  display: block;
+  font-size: 1.02rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.login-card__aside-sub {
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgba(191, 219, 254, 0.8);
+}
+
+.login-card__aside-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  margin-top: 8px;
+  color: #ffffff;
+  text-wrap: balance;
+}
+
+.login-card__aside-desc {
+  font-size: 0.85rem;
+  line-height: 1.62;
+  color: rgba(219, 234, 254, 0.82);
+}
+
+.login-card__aside-points {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  margin: 2px 0;
+}
+
+.login-card__aside-points li {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.45;
+  color: rgba(239, 246, 255, 0.92);
+}
+
+.login-card__aside-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  background: rgba(34, 197, 94, 0.22);
+  color: #86efac;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.login-card__aside-workspace {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+}
+
+.login-card__aside-workspace-label {
+  font-size: 0.63rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(191, 219, 254, 0.75);
+}
+
+.login-card__aside-workspace .institute-switcher {
+  width: 100%;
+}
+
+.login-card__aside-foot {
+  font-size: 0.62rem;
+  color: rgba(148, 163, 184, 0.85);
+  line-height: 1.4;
+}
 
 /* ── Form Area ── */
 .login-card__form-area {
-  padding: 36px 40px 40px;
+  padding: 38px 42px 40px;
   display: flex;
   flex-direction: column;
+  justify-content: center;
 }
 
 /* ── Header ── */
@@ -154,6 +304,28 @@
   font-size: 0.85rem;
   color: var(--l-muted);
   margin: 0;
+}
+
+.login-card__institute-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 14px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  font-size: 0.73rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.login-card__institute-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.16);
 }
 
 /* ── Role Tabs ── */
@@ -514,6 +686,33 @@
 }
 
 /* ── Responsive ── */
+@media (max-width: 880px) {
+  .login-card {
+    grid-template-columns: 1fr;
+    max-width: 480px;
+  }
+  .login-card__aside {
+    padding: 24px 26px;
+    gap: 14px;
+  }
+  .login-card__aside-title,
+  .login-card__aside-desc,
+  .login-card__aside-points,
+  .login-card__aside-foot,
+  .login-card__aside-glow {
+    display: none;
+  }
+  .login-card__aside-workspace {
+    margin-top: 0;
+  }
+  .login-card__form-area {
+    padding: 32px 30px 36px;
+  }
+  .login-page__main {
+    padding: 28px 16px;
+  }
+}
+
 @media (max-width: 480px) {
   .login-card__form-area {
     padding: 28px 22px 32px;
@@ -523,5 +722,8 @@
   }
   .login-role-tabs {
     flex-direction: column;
+  }
+  .login-card__aside {
+    padding: 20px 20px;
   }
 }

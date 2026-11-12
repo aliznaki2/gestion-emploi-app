@@ -106,7 +106,7 @@ class GenerateurEmploiDuTemps:
                 groupes_cibles = [g for g in groupes_cibles if g.id not in groupes_off_semaine]
 
             # ─── Phase 0 : calendrier des passages ────────────────────────────
-            self._log(Journal.NIVEAU_INFO, "Phase 0 : calendrier de passage des modules généraux.")
+            self._log(Journal.NIVEAU_INFO, "Phase 0 : calendrier de passage de tous les modules.")
             donnees = None
             try:
                 donnees = Donnees.charger(self.semaine_id, groupes_ids=groupes_ids)

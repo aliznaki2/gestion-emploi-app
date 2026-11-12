@@ -189,6 +189,15 @@ class Module(models.Model):
         verbose_name=_("Heures par semaine (par groupe)"),
         help_text=_("Volume horaire hebdomadaire planifié pour ce module, pour chaque groupe."),
     )
+    prerequis = models.ManyToManyField(
+        'self',
+        symmetrical=False,
+        blank=True,
+        related_name='debloque',
+        verbose_name=_("Modules prérequis"),
+        help_text=_("Modules qui doivent être terminés avant de commencer "
+                    "celui-ci. Le moteur respecte cet ordre par groupe."),
+    )
     types_salles_compatibles = models.ManyToManyField(
         TypeSalle,
         blank=True,
