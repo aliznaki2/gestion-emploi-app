@@ -1,14 +1,13 @@
 import { useState, useEffect } from 'react'
+import { APP_NAME, NETWORK_NAME } from '../../config/branding'
 import './Navbar.css'
 
 const NAV_LINKS = [
   { label: 'Accueil',           href: '#hero'        },
-  { label: "L'établissement",   href: '#about'       },
-  { label: 'Formations',        href: '#formations'  },
-  { label: 'Actualités',        href: '#actualites'  },
+  { label: 'La plateforme',     href: '#about'       },
 ]
 
-export default function Navbar({ onNavigateToLogin }) {
+export default function Navbar({ onNavigateToLogin, onSubscribe }) {
   const [scrolled,  setScrolled]  = useState(false)
   const [menuOpen,  setMenuOpen]  = useState(false)
 
@@ -32,6 +31,11 @@ export default function Navbar({ onNavigateToLogin }) {
     }
   }
 
+  const handleSubscribe = () => {
+    setMenuOpen(false)
+    if (onSubscribe) onSubscribe()
+  }
+
   return (
     <header className={`navbar ${scrolled ? 'navbar--scrolled' : ''}`} id="navbar">
       <div className="container navbar__inner">
@@ -41,8 +45,10 @@ export default function Navbar({ onNavigateToLogin }) {
           <img src="/ofppt.png" alt="Logo OFPPT" className="navbar__ofppt-img" />
           <div className="navbar__logo-divider" aria-hidden="true"></div>
           <div className="navbar__logo-text">
-            <span className="navbar__logo-name">ISTA NTIC 2</span>
-            <span className="navbar__logo-sub">Sidi Maârouf · Casablanca</span>
+            <span className="navbar__logo-name">
+              {APP_NAME}
+            </span>
+            <span className="navbar__logo-sub">{NETWORK_NAME} · OFPPT</span>
           </div>
         </a>
 
@@ -55,8 +61,20 @@ export default function Navbar({ onNavigateToLogin }) {
           ))}
         </nav>
 
-        {/* ── Bouton Connexion ── */}
+        {/* ── Abonnement + Connexion ── */}
         <div className="navbar__right">
+          <button
+            type="button"
+            id="btn-abonnement-nav"
+            className="navbar__cta navbar__cta--subscribe"
+            onClick={handleSubscribe}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            <span className="navbar__cta-label">S'abonner</span>
+          </button>
           <button
             type="button"
             id="btn-connexion-nav"
@@ -92,22 +110,36 @@ export default function Navbar({ onNavigateToLogin }) {
               {label}
             </a>
           ))}
-          <button
-            type="button"
-            className="navbar__mobile-connexion-btn"
-            onClick={handleConnexion}
-          >
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
-              <polyline points="10 17 15 12 10 7" />
-              <line x1="15" y1="12" x2="3" y2="12" />
-            </svg>
-            Connexion
-          </button>
         </nav>
+
+        <button
+          type="button"
+          className="navbar__mobile-connexion-btn"
+          onClick={handleConnexion}
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+            <polyline points="10 17 15 12 10 7" />
+            <line x1="15" y1="12" x2="3" y2="12" />
+          </svg>
+          Connexion
+        </button>
+
+        <button
+          type="button"
+          className="navbar__mobile-subscribe-btn"
+          onClick={handleSubscribe}
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          S'abonner au réseau
+        </button>
+
         <div className="navbar__mobile-bottom">
           <img src="/ofppt.png" alt="OFPPT" className="navbar__ofppt-img" />
-          <span className="navbar__mobile-brand">ISTA NTIC 2 · Casablanca</span>
+          <span className="navbar__mobile-brand">{APP_NAME} · {NETWORK_NAME}</span>
         </div>
       </div>
     </header>

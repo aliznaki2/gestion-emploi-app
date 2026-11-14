@@ -12,17 +12,21 @@ import unicodedata
 from datetime import date as _date_cls
 
 from django.db import IntegrityError, transaction
-from django.db.models import Count, ProtectedError
+from django.db.models import Count, F, ProtectedError
 from django.http import JsonResponse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 
 from core.models import (
     Semaine, Groupe, Professeur, Salle, Creneau,
     UniteEnseignement, Filiere, Secteur, TypeSalle, Module, Seance,
     SeanceGroupe, SeanceProfesseur, AnneeScolaire, Semestre, Indisponibilite,
-    AffectationEnseignement,
+    AffectationEnseignement, Disponibilite, DemandeModificationProfil,
+    TacheGeneration,
 )
-from solver.services import GenerateurEmploiDuTemps
+from solver.generation import GenerateurEmploiDuTemps
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -210,7 +214,12 @@ def _sync_affectations(prof, data):
     )
     prof.affectations_enseignement.all().delete()
     AffectationEnseignement.objects.bulk_create([
-        AffectationEnseignement(professeur=prof, module_id=module_id, groupe_id=groupe_id)
+        AffectationEnseignement(
+            professeur=prof,
+            module_id=module_id,
+            groupe_id=groupe_id,
+            statut=AffectationEnseignement.STATUT_AFFECTE,
+        )
         for module_id, groupe_id in sorted(set(couples))
         if module_id in valid_modules and groupe_id in valid_groupes
     ], ignore_conflicts=True)
@@ -222,16 +231,37 @@ def _recompute_prof_modules(prof):
     Les modules enseignés ne sont plus saisis dans la fiche formateur : ils
     découlent des couples (module, groupe) définis dans l'onglet Affectations.
     """
-    module_ids = prof.affectations_enseignement.values_list('module_id', flat=True)
+    if prof is None:
+        return
+    module_ids = prof.affectations_enseignement.filter(
+        professeur__isnull=False
+    ).values_list('module_id', flat=True)
     prof.modules.set(Module.objects.filter(id__in=module_ids))
 
 
+def _statut_besoin(value, prof):
+    """Statut cohérent avec la présence ou l'absence d'un formateur."""
+    if prof is not None:
+        return AffectationEnseignement.STATUT_AFFECTE
+    if value in (
+        AffectationEnseignement.STATUT_A_POURVOIR,
+        AffectationEnseignement.STATUT_VACATAIRE,
+    ):
+        return value
+    return AffectationEnseignement.STATUT_A_POURVOIR
+
+
 def _affectation_data(a):
+    prof = a.professeur
     return {
         'id': a.id,
         'professeur_id': a.professeur_id,
-        'professeur_nom': a.professeur.nom_complet,
-        'matricule': a.professeur.matricule,
+        'professeur_nom': prof.nom_complet if prof else None,
+        'matricule': prof.matricule if prof else None,
+        'statut': a.statut,
+        'statut_label': a.get_statut_display(),
+        'est_pourvu': bool(prof),
+        'notes': a.notes or '',
         'module_id': a.module_id,
         'module_code': a.module.code,
         'module_intitule': a.module.intitule,
@@ -244,9 +274,11 @@ def _affectation_data(a):
 
 
 def _professeur_data(p):
-    email = ''
+    email = p.email or ''
+    telephone = p.telephone or ''
     if getattr(p, 'utilisateur', None):
-        email = p.utilisateur.email or ''
+        email = email or (p.utilisateur.email or '')
+        telephone = telephone or (p.utilisateur.telephone or '')
     modules = list(p.modules.all())
     affectations = [
         {'module_id': a.module_id, 'groupe_id': a.groupe_id}
@@ -257,6 +289,7 @@ def _professeur_data(p):
         'matricule': p.matricule,
         'nom_complet': p.nom_complet,
         'email': email,
+        'telephone': telephone,
         'statut': p.statut,
         'taux_presence': round(float(p.taux_presence or 0) * 100, 1),
         'heures_max_semaine': float(p.heures_max_semaine) if p.heures_max_semaine is not None else None,
@@ -276,6 +309,134 @@ def _professeur_data(p):
     }
 
 
+PROFIL_CHAMPS_SALLES = (
+    ('salle_preferee_id', 'salle_preferee'),
+    ('salle_preferee_matin_id', 'salle_preferee_matin'),
+    ('salle_preferee_apm_id', 'salle_preferee_apm'),
+)
+
+
+def _valeurs_profil(prof):
+    """Valeurs actuelles de la fiche formateur (pour l'affichage et les diffs)."""
+    email = prof.email or ''
+    telephone = prof.telephone or ''
+    if prof.utilisateur_id:
+        utilisateur = prof.utilisateur
+        email = email or (utilisateur.email or '')
+        telephone = telephone or (utilisateur.telephone or '')
+    return {
+        'email': email,
+        'telephone': telephone,
+        'statut': prof.statut,
+        'heures_max_semaine': float(prof.heures_max_semaine) if prof.heures_max_semaine is not None else None,
+        'salle_preferee_id': prof.salle_preferee_id,
+        'salle_preferee_nom': prof.salle_preferee.nom if prof.salle_preferee else None,
+        'salle_preferee_matin_id': prof.salle_preferee_matin_id,
+        'salle_preferee_matin_nom': prof.salle_preferee_matin.nom if prof.salle_preferee_matin else None,
+        'salle_preferee_apm_id': prof.salle_preferee_apm_id,
+        'salle_preferee_apm_nom': prof.salle_preferee_apm.nom if prof.salle_preferee_apm else None,
+    }
+
+
+def _normaliser_donnees_profil(data):
+    """Valide les champs modifiables d'une demande de profil.
+
+    Retourne ``(donnees, message_erreur)``.  Seuls les champs présents dans le
+    corps de la requête sont conservés, afin de ne pas écraser les autres.
+    """
+    donnees = {}
+
+    if 'email' in data:
+        email = str(data.get('email') or '').strip()
+        if email:
+            try:
+                validate_email(email)
+            except DjangoValidationError:
+                return None, "L'adresse email n'est pas valide."
+        donnees['email'] = email
+
+    if 'telephone' in data:
+        telephone = str(data.get('telephone') or '').strip()
+        if len(telephone) > 20:
+            return None, 'Le numéro de téléphone ne doit pas dépasser 20 caractères.'
+        donnees['telephone'] = telephone
+
+    if 'statut' in data:
+        statut = str(data.get('statut') or '').strip().lower()
+        if statut not in (Professeur.STATUT_PERMANENT, Professeur.STATUT_VACATAIRE):
+            return None, 'Le statut doit être « permanent » ou « vacataire ».'
+        donnees['statut'] = statut
+
+    if 'heures_max_semaine' in data:
+        try:
+            heures = float(data.get('heures_max_semaine') or 0)
+        except (TypeError, ValueError):
+            return None, 'Le nombre d’heures maximales est invalide.'
+        if heures < 0 or heures > 60:
+            return None, 'Le nombre d’heures maximales doit être compris entre 0 et 60.'
+        donnees['heures_max_semaine'] = heures
+
+    for cle, libelle in PROFIL_CHAMPS_SALLES:
+        if cle not in data:
+            continue
+        valeur = data.get(cle)
+        if valeur in (None, '', 0, '0'):
+            donnees[cle] = None
+            continue
+        salle_id = _int_or_none(valeur)
+        salle = _get_or_none(Salle, salle_id) if salle_id else None
+        if not salle:
+            return None, 'La salle sélectionnée est introuvable.'
+        donnees[cle] = salle.id
+
+    return donnees, None
+
+
+def _demande_profil_data(demande):
+    return {
+        'id': demande.id,
+        'professeur_id': demande.professeur_id,
+        'professeur_nom': demande.professeur.nom_complet,
+        'matricule': demande.professeur.matricule,
+        'donnees': demande.donnees or {},
+        'actuel': demande.donnees_avant or _valeurs_profil(demande.professeur),
+        'statut': demande.statut,
+        'commentaire_formateur': demande.commentaire_formateur,
+        'commentaire_admin': demande.commentaire_admin,
+        'date_demande': demande.date_demande.isoformat() if demande.date_demande else None,
+        'date_traitement': demande.date_traitement.isoformat() if demande.date_traitement else None,
+    }
+
+
+def _appliquer_donnees_profil(prof, donnees):
+    """Applique une demande approuvée à la fiche formateur et au compte lié."""
+    if 'email' in donnees:
+        prof.email = donnees['email']
+    if 'telephone' in donnees:
+        prof.telephone = donnees['telephone']
+    if 'statut' in donnees:
+        prof.statut = donnees['statut']
+    if 'heures_max_semaine' in donnees:
+        prof.heures_max_semaine = donnees['heures_max_semaine']
+    for cle, champ in PROFIL_CHAMPS_SALLES:
+        if cle in donnees:
+            salle_id = donnees[cle]
+            setattr(prof, champ, _get_or_none(Salle, salle_id) if salle_id else None)
+    prof.save()
+
+    if prof.utilisateur_id:
+        utilisateur = prof.utilisateur
+        champs = []
+        if 'email' in donnees:
+            utilisateur.email = donnees['email']
+            champs.append('email')
+        if 'telephone' in donnees:
+            utilisateur.telephone = donnees['telephone']
+            champs.append('telephone')
+        if champs:
+            utilisateur.save(update_fields=champs)
+
+
 def _salle_data(s):
     return {
         'id': s.id,
@@ -292,6 +453,7 @@ def _salle_data(s):
 
 def _module_data(m):
     types = list(m.types_salles_compatibles.all())
+    prerequis = list(m.prerequis.all())
     return {
         'id': m.id,
         'code': m.code,
@@ -305,11 +467,32 @@ def _module_data(m):
         'peut_avoir_seance_2_5': m.peut_avoir_seance_2_5,
         'heures_hebdomadaires': float(m.heures_hebdomadaires or 0),
         'est_technique_m10': m.est_technique_m10,
+        'prerequis_ids': [p.id for p in prerequis],
+        'prerequis_codes': [p.code for p in prerequis],
+        'prerequis': [
+            {'id': p.id, 'code': p.code, 'intitule': p.intitule}
+            for p in prerequis
+        ],
         'types_salles_compatibles': [t.id for t in types],
         'types_salles_ids': [t.id for t in types],
         'types_salles_codes': [t.code for t in types],
         'types_salles_libelles': [t.libelle for t in types],
     }
+
+
+def _set_module_prerequis(module, data):
+    """Met à jour les prérequis depuis ``prerequis_ids`` ou ``prerequis_codes``."""
+    ids = data.get('prerequis_ids')
+    if ids is None:
+        codes = data.get('prerequis_codes')
+        if codes is None:
+            return
+        codes = [str(c).strip().upper() for c in codes if str(c).strip()]
+        cibles = Module.objects.filter(code__in=codes)
+    else:
+        ids = [_int_or_none(x) for x in ids if _int_or_none(x)]
+        cibles = Module.objects.filter(id__in=ids)
+    module.prerequis.set(cibles.exclude(pk=module.pk))
 
 
 def _filiere_data(f):
@@ -391,14 +574,21 @@ def init_semaines_compat(request):
     """POST /api/init-semaines"""
     annee = AnneeScolaire.objects.filter(active=True).first() or AnneeScolaire.objects.first()
     s1 = Semestre.objects.filter(annee_scolaire=annee, numero=1).first() if annee else None
+    s2 = Semestre.objects.filter(annee_scolaire=annee, numero=2).first() if annee else None
 
-    for num in range(1, 17):
+    # Année type : 22 semaines en S1 puis 23 semaines en S2.
+    total = 45
+    bascule = 22
+    for num in range(1, total + 1):
         Semaine.objects.get_or_create(
             annee_scolaire=annee,
             numero=num,
-            defaults={'semestre': s1, 'active': True}
+            defaults={
+                'semestre': s1 if num <= bascule else s2,
+                'active': True,
+            },
         )
-    return JsonResponse({'message': '16 semaines initialisées avec succès'})
+    return JsonResponse({'message': f'{total} semaines initialisées avec succès'})
 
 
 def get_creneaux_compat(request):
@@ -575,6 +765,8 @@ def professeurs_collection(request):
         prof = Professeur.objects.create(
             matricule=matricule,
             nom_complet=nom_complet.upper(),
+            email=str(data.get('email') or '').strip(),
+            telephone=str(data.get('telephone') or '').strip(),
             statut=str(data.get('statut') or 'permanent').strip().lower(),
             heures_max_semaine=float(data.get('heures_max_semaine') or 30.0),
             taux_presence=_normalize_taux(data.get('taux_presence')),
@@ -610,6 +802,10 @@ def professeur_detail(request, pk):
             if Professeur.objects.filter(matricule=matricule).exclude(pk=prof.pk).exists():
                 return _error(f'Le matricule {matricule} existe déjà.')
             prof.matricule = matricule
+        if 'email' in data:
+            prof.email = str(data.get('email') or '').strip()
+        if 'telephone' in data:
+            prof.telephone = str(data.get('telephone') or '').strip()
         if 'statut' in data:
             prof.statut = str(data.get('statut') or 'permanent').strip().lower()
         if 'heures_max_semaine' in data:
@@ -645,10 +841,132 @@ def professeur_detail(request, pk):
                 'success': True,
                 'message': f'Le formateur {prof.nom_complet} est utilisé : il a été archivé (désactivé).',
             })
+        # Ses besoins redeviennent des postes à pourvoir plutôt que d'être perdus.
+        for affectation in AffectationEnseignement.objects.filter(professeur=prof):
+            doublon = AffectationEnseignement.objects.filter(
+                module_id=affectation.module_id,
+                groupe_id=affectation.groupe_id,
+                professeur__isnull=True,
+            ).exclude(pk=affectation.pk).exists()
+            if doublon:
+                affectation.delete()
+            else:
+                affectation.professeur = None
+                affectation.statut = AffectationEnseignement.STATUT_A_POURVOIR
+                affectation.save()
         prof.delete()
         return JsonResponse({'success': True, 'message': f'Formateur {prof.nom_complet} supprimé.'})
 
     return _error('Méthode non autorisée.', 405)
+
+
+# ─── Demandes de modification de profil formateur ─────────────────────────────
+@csrf_exempt
+def demandes_profil_collection(request):
+    """GET/POST /api/demandes-profil"""
+    if request.method == 'GET':
+        demandes = DemandeModificationProfil.objects.select_related(
+            'professeur',
+            'professeur__utilisateur',
+            'professeur__salle_preferee',
+            'professeur__salle_preferee_matin',
+            'professeur__salle_preferee_apm',
+        ).all()
+        professeur_id = _int_or_none(request.GET.get('professeur_id'))
+        if professeur_id:
+            demandes = demandes.filter(professeur_id=professeur_id)
+        statut = (request.GET.get('statut') or '').strip()
+        if statut:
+            demandes = demandes.filter(statut=statut)
+        return JsonResponse([_demande_profil_data(d) for d in demandes], safe=False)
+
+    if request.method != 'POST':
+        return _error('Méthode non autorisée.', 405)
+
+    data = _body(request)
+    prof = _get_or_none(Professeur, _value(data, 'professeur_id', 'professeur'))
+    if not prof:
+        return _error('Formateur introuvable.', 404)
+
+    donnees, erreur = _normaliser_donnees_profil(data)
+    if erreur:
+        return _error(erreur)
+    if not donnees:
+        return _error('Aucune modification à envoyer.')
+
+    commentaire = str(data.get('commentaire_formateur') or '').strip()[:1000]
+
+    demande = DemandeModificationProfil.objects.filter(
+        professeur=prof,
+        statut=DemandeModificationProfil.STATUT_EN_ATTENTE,
+    ).first()
+    creee = demande is None
+    if creee:
+        demande = DemandeModificationProfil(professeur=prof)
+    demande.donnees = donnees
+    demande.donnees_avant = _valeurs_profil(prof)
+    demande.commentaire_formateur = commentaire
+    demande.save()
+
+    return JsonResponse(_demande_profil_data(demande), status=201 if creee else 200)
+
+
+@csrf_exempt
+def demande_profil_detail(request, pk):
+    """GET/DELETE /api/demandes-profil/<id>"""
+    demande = _get_or_none(DemandeModificationProfil, pk)
+    if not demande:
+        return _error('Demande introuvable.', 404)
+
+    if request.method == 'GET':
+        return JsonResponse(_demande_profil_data(demande))
+
+    if request.method == 'DELETE':
+        if demande.statut != DemandeModificationProfil.STATUT_EN_ATTENTE:
+            return _error('Seule une demande en attente peut être annulée.')
+        demande.delete()
+        return JsonResponse({'success': True, 'message': 'Demande annulée.'})
+
+    return _error('Méthode non autorisée.', 405)
+
+
+def _traiter_demande_profil(request, pk, statut):
+    if request.method != 'POST':
+        return _error('Méthode non autorisée.', 405)
+
+    demande = _get_or_none(DemandeModificationProfil, pk)
+    if not demande:
+        return _error('Demande introuvable.', 404)
+    if demande.statut != DemandeModificationProfil.STATUT_EN_ATTENTE:
+        return _error('Cette demande a déjà été traitée.')
+
+    data = _body(request)
+    commentaire = str(data.get('commentaire_admin') or '').strip()[:1000]
+
+    with transaction.atomic():
+        if statut == DemandeModificationProfil.STATUT_APPROUVEE:
+            _appliquer_donnees_profil(demande.professeur, demande.donnees or {})
+        demande.statut = statut
+        demande.commentaire_admin = commentaire
+        demande.date_traitement = timezone.now()
+        demande.save(update_fields=['statut', 'commentaire_admin', 'date_traitement'])
+
+    return JsonResponse({
+        'demande': _demande_profil_data(demande),
+        'professeur': _professeur_data(demande.professeur),
+    })
+
+
+@csrf_exempt
+def approuver_demande_profil(request, pk):
+    """POST /api/demandes-profil/<id>/approuver"""
+    return _traiter_demande_profil(request, pk, DemandeModificationProfil.STATUT_APPROUVEE)
+
+
+@csrf_exempt
+def refuser_demande_profil(request, pk):
+    """POST /api/demandes-profil/<id>/refuser"""
+    return _traiter_demande_profil(request, pk, DemandeModificationProfil.STATUT_REFUSEE)
 
 
 # ─── CRUD : Salles ────────────────────────────────────────────────────────────
@@ -730,7 +1048,12 @@ def salle_detail(request, pk):
 @csrf_exempt
 def modules_collection(request):
     if request.method == 'GET':
-        modules = Module.objects.prefetch_related('types_salles_compatibles').all().order_by('code')
+        modules = (
+            Module.objects
+            .prefetch_related('types_salles_compatibles', 'prerequis')
+            .all()
+            .order_by('code')
+        )
         return JsonResponse([_module_data(m) for m in modules], safe=False)
 
     if request.method != 'POST':
@@ -763,6 +1086,7 @@ def modules_collection(request):
                 module.types_salles_compatibles.set(
                     TypeSalle.objects.filter(id__in=[_int_or_none(x) for x in types_ids if _int_or_none(x)])
                 )
+            _set_module_prerequis(module, data)
     except IntegrityError as exc:
         return _error(f'Impossible de créer le module : {exc}')
     module.refresh_from_db()
@@ -807,6 +1131,8 @@ def module_detail(request, pk):
             module.types_salles_compatibles.set(
                 TypeSalle.objects.filter(id__in=[_int_or_none(x) for x in types_ids if _int_or_none(x)])
             )
+        if 'prerequis_ids' in data or 'prerequis_codes' in data:
+            _set_module_prerequis(module, data)
         return JsonResponse(_module_data(module))
 
     if request.method == 'DELETE':
@@ -1130,27 +1456,154 @@ def indisponibilite_detail(request, pk):
     return _error('Méthode non autorisée.', 405)
 
 
+# ─── Disponibilités des formateurs ───────────────────────────────────────────
+ETATS_DISPONIBILITE = {Disponibilite.ETAT_DISPONIBLE, Disponibilite.ETAT_BLOQUE,
+                       Disponibilite.ETAT_PREFERE}
+
+
+def _disponibilite_data(d):
+    return {
+        'id': d.id,
+        'professeur_id': d.professeur_id,
+        'creneau_id': d.creneau_id,
+        'etat': d.etat,
+        'jour': d.creneau.jour,
+        'numero_seance': d.creneau.numero_seance,
+        'heure_debut': d.creneau.heure_debut.strftime('%H:%M'),
+        'heure_fin': d.creneau.heure_fin.strftime('%H:%M'),
+    }
+
+
+def _disponibilites_prof(prof_id):
+    qs = Disponibilite.objects.filter(professeur_id=prof_id).select_related('creneau')
+    return JsonResponse([_disponibilite_data(d) for d in qs], safe=False)
+
+
+@csrf_exempt
+def disponibilites_collection(request):
+    """GET/POST/PUT /api/disponibilites
+
+    GET  ?professeur=<id>  — disponibilités d'un formateur.
+    POST {professeur_id, creneau_id, etat} — met à jour un créneau.
+    PUT  {professeur_id, disponibilites: [{creneau_id, etat}, ...]}
+         — remplace l'ensemble des disponibilités du formateur.
+    """
+    if request.method == 'GET':
+        prof_id = _int_or_none(request.GET.get('professeur')
+                               or request.GET.get('professeur_id'))
+        if prof_id:
+            return _disponibilites_prof(prof_id)
+        qs = Disponibilite.objects.select_related('professeur', 'creneau').all()
+        return JsonResponse([_disponibilite_data(d) for d in qs], safe=False)
+
+    if request.method not in ('POST', 'PUT'):
+        return _error('Méthode non autorisée.', 405)
+
+    data = _body(request)
+    prof = _get_or_none(Professeur, _value(data, 'professeur_id', 'professeur'))
+    if not prof:
+        return _error('Formateur introuvable.')
+
+    # Remplacement global de la grille (bouton « Enregistrer »).
+    raw = data.get('disponibilites')
+    if isinstance(raw, list):
+        creneaux_valides = set(Creneau.objects.values_list('id', flat=True))
+        entrees = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            creneau_id = _int_or_none(_value(item, 'creneau_id', 'creneau'))
+            etat = str(item.get('etat') or Disponibilite.ETAT_DISPONIBLE).strip().lower()
+            if etat not in ETATS_DISPONIBILITE:
+                etat = Disponibilite.ETAT_DISPONIBLE
+            if creneau_id in creneaux_valides and etat != Disponibilite.ETAT_DISPONIBLE:
+                entrees.append(Disponibilite(professeur=prof, creneau_id=creneau_id, etat=etat))
+
+        with transaction.atomic():
+            Disponibilite.objects.filter(professeur=prof).delete()
+            if entrees:
+                Disponibilite.objects.bulk_create(entrees)
+        return _disponibilites_prof(prof.id)
+
+    # Mise à jour d'un seul créneau.
+    creneau = _get_or_none(Creneau, _value(data, 'creneau_id', 'creneau'))
+    if not creneau:
+        return _error('Créneau introuvable.')
+    etat = str(data.get('etat') or Disponibilite.ETAT_DISPONIBLE).strip().lower()
+    if etat not in ETATS_DISPONIBILITE:
+        return _error('État de disponibilité invalide.')
+
+    if etat == Disponibilite.ETAT_DISPONIBLE:
+        Disponibilite.objects.filter(professeur=prof, creneau=creneau).delete()
+        return JsonResponse({
+            'professeur_id': prof.id,
+            'creneau_id': creneau.id,
+            'etat': Disponibilite.ETAT_DISPONIBLE,
+        })
+
+    dispo, created = Disponibilite.objects.update_or_create(
+        professeur=prof, creneau=creneau, defaults={'etat': etat}
+    )
+    return JsonResponse(_disponibilite_data(dispo), status=201 if created else 200)
+
+
+@csrf_exempt
+def disponibilite_detail(request, pk):
+    dispo = Disponibilite.objects.select_related('creneau', 'professeur').filter(pk=pk).first()
+    if not dispo:
+        return _error('Disponibilité introuvable.', 404)
+
+    if request.method == 'GET':
+        return JsonResponse(_disponibilite_data(dispo))
+
+    if request.method in ('PUT', 'PATCH'):
+        data = _body(request)
+        etat = str(data.get('etat') or dispo.etat).strip().lower()
+        if etat not in ETATS_DISPONIBILITE:
+            return _error('État de disponibilité invalide.')
+        dispo.etat = etat
+        dispo.save(update_fields=['etat'])
+        return JsonResponse(_disponibilite_data(dispo))
+
+    if request.method == 'DELETE':
+        dispo.delete()
+        return JsonResponse({'success': True, 'message': 'Disponibilité supprimée.'})
+
+    return _error('Méthode non autorisée.', 405)
+
+
 # ─── CRUD : Affectations Module / Groupe / Formateur ─────────────────────────
 @csrf_exempt
 def affectations_collection(request):
-    """GET /api/affectations — liste des affectations (module, groupe, formateur).
+    """GET /api/affectations — besoins d'enseignement (module, groupe, formateur).
 
-    POST /api/affectations — affecte un formateur à un module pour un groupe.
+    POST /api/affectations — crée ou met à jour un besoin. Le formateur est
+    facultatif : sans lui, le besoin est « à pourvoir » ou « vacataire à recruter ».
     """
     if request.method == 'GET':
         qs = AffectationEnseignement.objects.select_related(
             'professeur', 'module', 'groupe__filiere'
-        ).order_by('groupe__code', 'module__code', 'professeur__nom_complet')
+        ).order_by(
+            'groupe__code', 'module__code',
+            F('professeur__nom_complet').asc(nulls_last=True),
+        )
 
         prof_id = _int_or_none(request.GET.get('professeur_id'))
         module_id = _int_or_none(request.GET.get('module_id'))
         groupe_id = _int_or_none(request.GET.get('groupe_id'))
+        statut = request.GET.get('statut')
         if prof_id:
             qs = qs.filter(professeur_id=prof_id)
         if module_id:
             qs = qs.filter(module_id=module_id)
         if groupe_id:
             qs = qs.filter(groupe_id=groupe_id)
+        if statut in (
+            AffectationEnseignement.STATUT_AFFECTE,
+            AffectationEnseignement.STATUT_A_POURVOIR,
+            AffectationEnseignement.STATUT_VACATAIRE,
+        ):
+            qs = qs.filter(statut=statut)
 
         return JsonResponse([_affectation_data(a) for a in qs], safe=False)
 
@@ -1158,19 +1611,67 @@ def affectations_collection(request):
         return _error('Méthode non autorisée.', 405)
 
     data = _body(request)
-    prof = _get_or_none(Professeur, _value(data, 'professeur_id', 'professeur'))
     module = _get_or_none(Module, _value(data, 'module_id', 'module'))
     groupe = _get_or_none(Groupe, _value(data, 'groupe_id', 'groupe'))
-    if not prof:
-        return _error('Formateur introuvable.')
     if not module:
         return _error('Module introuvable.')
     if not groupe:
         return _error('Groupe introuvable.')
 
-    affectation, created = AffectationEnseignement.objects.get_or_create(
-        professeur=prof, module=module, groupe=groupe
-    )
+    raw_prof = _value(data, 'professeur_id', 'professeur')
+    prof = _get_or_none(Professeur, raw_prof)
+    if raw_prof not in (None, '') and not prof:
+        return _error('Formateur introuvable.')
+
+    statut = _statut_besoin(data.get('statut'), prof)
+    notes = str(data.get('notes') or '').strip()[:255]
+
+    if prof:
+        if AffectationEnseignement.objects.filter(
+            module=module, groupe=groupe, professeur=prof
+        ).exists():
+            return _error('Ce formateur est déjà affecté à ce module pour ce groupe.')
+
+        # Un besoin ouvert existant est complété plutôt que dupliqué.
+        affectation = AffectationEnseignement.objects.filter(
+            module=module, groupe=groupe, professeur__isnull=True
+        ).first()
+        if affectation:
+            affectation.professeur = prof
+            affectation.statut = AffectationEnseignement.STATUT_AFFECTE
+            if notes:
+                affectation.notes = notes
+            affectation.save()
+            created = False
+        else:
+            affectation = AffectationEnseignement.objects.create(
+                professeur=prof,
+                module=module,
+                groupe=groupe,
+                statut=AffectationEnseignement.STATUT_AFFECTE,
+                notes=notes,
+            )
+            created = True
+    else:
+        affectation = AffectationEnseignement.objects.filter(
+            module=module, groupe=groupe, professeur__isnull=True
+        ).first()
+        if affectation:
+            affectation.statut = statut
+            if notes:
+                affectation.notes = notes
+            affectation.save()
+            created = False
+        else:
+            affectation = AffectationEnseignement.objects.create(
+                professeur=None,
+                module=module,
+                groupe=groupe,
+                statut=statut,
+                notes=notes,
+            )
+            created = True
+
     _recompute_prof_modules(prof)
     return JsonResponse(
         _affectation_data(affectation),
@@ -1191,26 +1692,49 @@ def affectation_detail(request, pk):
 
     if request.method in ('PUT', 'PATCH'):
         data = _body(request)
-        prof = _get_or_none(Professeur, _value(data, 'professeur_id', 'professeur')) \
-            or affectation.professeur
         module = _get_or_none(Module, _value(data, 'module_id', 'module')) \
             or affectation.module
         groupe = _get_or_none(Groupe, _value(data, 'groupe_id', 'groupe')) \
             or affectation.groupe
 
-        doublon = AffectationEnseignement.objects.filter(
-            professeur=prof, module=module, groupe=groupe
-        ).exclude(pk=affectation.pk).exists()
-        if doublon:
-            return _error('Cette affectation existe déjà.')
+        # La présence de la clé professeur_id est significative : une valeur
+        # nulle demande explicitement de retirer le formateur du besoin.
+        prof_cle_presente = ('professeur_id' in data) or ('professeur' in data)
+        if prof_cle_presente:
+            raw_prof = data.get('professeur_id', data.get('professeur'))
+            if raw_prof in (None, ''):
+                prof = None
+            else:
+                prof = _get_or_none(Professeur, raw_prof)
+                if not prof:
+                    return _error('Formateur introuvable.')
+        else:
+            prof = affectation.professeur
+
+        statut = _statut_besoin(
+            data.get('statut', affectation.statut),
+            prof,
+        )
+        notes = str(data.get('notes', affectation.notes) or '').strip()[:255]
+
+        autres = AffectationEnseignement.objects.exclude(pk=affectation.pk).filter(
+            module=module, groupe=groupe
+        )
+        if prof and autres.filter(professeur=prof).exists():
+            return _error('Ce formateur est déjà affecté à ce module pour ce groupe.')
+        if not prof and autres.filter(professeur__isnull=True).exists():
+            return _error('Un besoin à pourvoir existe déjà pour ce couple module / groupe.')
 
         ancien_prof = affectation.professeur
         affectation.professeur = prof
         affectation.module = module
         affectation.groupe = groupe
+        affectation.statut = statut
+        affectation.notes = notes
         affectation.save()
+
         _recompute_prof_modules(prof)
-        if ancien_prof.pk != prof.pk:
+        if ancien_prof and (not prof or ancien_prof.pk != prof.pk):
             _recompute_prof_modules(ancien_prof)
         affectation.refresh_from_db()
         return JsonResponse(_affectation_data(affectation))
@@ -1305,6 +1829,22 @@ def generer_semaine_compat(request, semaine_id):
     data = _body(request)
     max_time = _int_or_none(data.get('max_time_seconds')) or 60
     groupes_ids = data.get('groupes_ids') or None
+
+    # Une génération déjà en cours pour cette semaine bloque la relance.
+    limite = timezone.now() - timezone.timedelta(hours=3)
+    en_cours = TacheGeneration.objects.filter(
+        semaine_id=semaine_id,
+        statut__in=[TacheGeneration.STATUT_EN_ATTENTE, TacheGeneration.STATUT_EN_COURS],
+        date_debut__gte=limite,
+    ).order_by('-date_debut').first()
+    if en_cours:
+        return JsonResponse({
+            'succes': False,
+            'success': False,
+            'message': "Une génération est déjà en cours pour cette semaine.",
+            'tache_id': en_cours.id,
+        }, status=409)
+
     generateur = GenerateurEmploiDuTemps(semaine_id=semaine_id)
     res = generateur.executer(max_time_seconds=max_time, groupes_ids=groupes_ids)
     return JsonResponse(res, status=200 if res.get('succes') else 422)

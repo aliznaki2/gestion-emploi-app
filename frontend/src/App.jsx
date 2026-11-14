@@ -2,11 +2,14 @@ import { useState, useEffect } from 'react'
 import Navbar from './components/Navbar/Navbar'
 import Hero from './components/Hero/Hero'
 import About from './components/About/About'
-import Formations from './components/Formations/Formations'
-import Actualites from './components/Actualites/Actualites'
 import Footer from './components/Footer/Footer'
 import Login from './components/Login/Login'
 import Dashboard from './components/Dashboard/Dashboard'
+import EspaceFormateur from './components/EspaceFormateur/EspaceFormateur'
+import SubscriptionModal from './components/SubscriptionModal/SubscriptionModal'
+
+const ROLE_STORAGE_KEY = 'gestemploi_role'
+const EMAIL_STORAGE_KEY = 'gestemploi_email'
 
 function App() {
   const [currentView, setCurrentView] = useState(() => {
@@ -15,7 +18,21 @@ function App() {
     if (hash === '#dashboard') return 'dashboard'
     return 'home'
   })
-  const [userRole, setUserRole] = useState(null)
+  const [userRole, setUserRole] = useState(() => {
+    try {
+      return window.localStorage.getItem(ROLE_STORAGE_KEY)
+    } catch {
+      return null
+    }
+  })
+  const [userEmail, setUserEmail] = useState(() => {
+    try {
+      return window.localStorage.getItem(EMAIL_STORAGE_KEY) || ''
+    } catch {
+      return ''
+    }
+  })
+  const [showSubscription, setShowSubscription] = useState(false)
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -46,8 +63,18 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const handleLoginSuccess = (role) => {
+  const openSubscription = () => setShowSubscription(true)
+  const closeSubscription = () => setShowSubscription(false)
+
+  const handleLoginSuccess = (role, identifier = '') => {
     setUserRole(role)
+    setUserEmail(identifier)
+    try {
+      window.localStorage.setItem(ROLE_STORAGE_KEY, role)
+      window.localStorage.setItem(EMAIL_STORAGE_KEY, identifier)
+    } catch {
+      // Stockage indisponible : la session reste valable jusqu'au rechargement.
+    }
     window.location.hash = '#dashboard'
     setCurrentView('dashboard')
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -55,6 +82,13 @@ function App() {
 
   const handleLogout = () => {
     setUserRole(null)
+    setUserEmail('')
+    try {
+      window.localStorage.removeItem(ROLE_STORAGE_KEY)
+      window.localStorage.removeItem(EMAIL_STORAGE_KEY)
+    } catch {
+      // Ignorer les erreurs de stockage.
+    }
     navigateToHome()
   }
 
@@ -63,19 +97,23 @@ function App() {
   }
 
   if (currentView === 'dashboard') {
-    return <Dashboard role={userRole || 'admin'} onLogout={handleLogout} />
+    // Le profil formateur n'a accès à aucune fonction d'administration :
+    // son interface dédiée regroupe ses disponibilités et son emploi du temps.
+    if (userRole === 'formateur') {
+      return <EspaceFormateur email={userEmail} onLogout={handleLogout} />
+    }
+    return <Dashboard role="admin" onLogout={handleLogout} />
   }
 
   return (
     <div className="app">
-      <Navbar onNavigateToLogin={navigateToLogin} />
+      <Navbar onNavigateToLogin={navigateToLogin} onSubscribe={openSubscription} />
       <main>
-        <Hero />
-        <About />
-        <Formations />
-        <Actualites />
+        <Hero onNavigateToLogin={navigateToLogin} onSubscribe={openSubscription} />
+        <About onSubscribe={openSubscription} />
       </main>
-      <Footer onNavigateToLogin={navigateToLogin} />
+      <Footer onNavigateToLogin={navigateToLogin} onSubscribe={openSubscription} />
+      {showSubscription && <SubscriptionModal onClose={closeSubscription} />}
     </div>
   )
 }

@@ -6,7 +6,7 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     ConnexionTokenView, RafraichirTokenView, ProfilUtilisateurView,
-    GenerationViewSet, SeanceViewSet, ValiderSemaineView,
+    GenerationViewSet, CalculerPassagesView, SeanceViewSet, ValiderSemaineView,
     ImportAvancementView, SemaineViewSet, GroupeViewSet,
     ProfesseurViewSet, SalleViewSet, CreneauViewSet,
     ModuleViewSet, DisponibiliteViewSet
@@ -18,11 +18,14 @@ from .compat_views import (
     generer_semaine_compat, valider_semaine_compat, vider_semaine_compat,
     groupes_collection, groupe_detail,
     professeurs_collection, professeur_detail,
+    demandes_profil_collection, demande_profil_detail,
+    approuver_demande_profil, refuser_demande_profil,
     salles_collection, salle_detail,
     modules_collection, module_detail,
     filieres_collection, filiere_detail,
     secteurs_collection, secteur_detail,
     indisponibilites_collection, indisponibilite_detail,
+    disponibilites_collection, disponibilite_detail,
     affectations_collection, affectation_detail,
 )
 
@@ -57,6 +60,10 @@ urlpatterns = [
     path('groupes/<int:pk>', groupe_detail, name='compat_groupe_detail'),
     path('professeurs', professeurs_collection, name='compat_professeurs'),
     path('professeurs/<int:pk>', professeur_detail, name='compat_professeur_detail'),
+    path('demandes-profil', demandes_profil_collection, name='compat_demandes_profil'),
+    path('demandes-profil/<int:pk>', demande_profil_detail, name='compat_demande_profil_detail'),
+    path('demandes-profil/<int:pk>/approuver', approuver_demande_profil, name='compat_demande_profil_approuver'),
+    path('demandes-profil/<int:pk>/refuser', refuser_demande_profil, name='compat_demande_profil_refuser'),
     path('salles', salles_collection, name='compat_salles'),
     path('salles/<int:pk>', salle_detail, name='compat_salle_detail'),
     path('modules', modules_collection, name='compat_modules'),
@@ -69,6 +76,8 @@ urlpatterns = [
     path('indisponibilites/<int:pk>', indisponibilite_detail, name='compat_indisponibilite_detail'),
     path('affectations', affectations_collection, name='compat_affectations'),
     path('affectations/<int:pk>', affectation_detail, name='compat_affectation_detail'),
+    path('disponibilites', disponibilites_collection, name='compat_disponibilites'),
+    path('disponibilites/<int:pk>', disponibilite_detail, name='compat_disponibilite_detail'),
 
     # ─── Emploi du temps, statistiques & actions ─────────────────────────────
     path('emploi-du-temps/<int:semaine_id>', get_emploi_du_temps_compat, name='compat_emploi_du_temps'),
@@ -89,6 +98,7 @@ urlpatterns = [
     # ─── Génération Automatique DRF ──────────────────────────────────────────
     path('generation/', GenerationViewSet.as_view({'get': 'list', 'post': 'create'}), name='generation_list_create'),
     path('generation/<int:pk>/', GenerationViewSet.as_view({'get': 'retrieve'}), name='generation_detail'),
+    path('passages/calculer/', CalculerPassagesView.as_view(), name='calculer_passages'),
 
     # ─── Validation Semaine DRF ──────────────────────────────────────────────
     path('semaines/<int:semaine_id>/valider/', ValiderSemaineView.as_view(), name='valider_semaine'),

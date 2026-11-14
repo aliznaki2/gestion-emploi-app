@@ -24,6 +24,7 @@ class SeancePlacee:
     nature: str
     bloc_no: Optional[int]
     mode: str
+    professeur_ids: List[int] = field(default_factory=list)
 
 
 @dataclass
@@ -35,6 +36,7 @@ class ResultatPlacement:
     temps_resolution_ms: int = 0
     score_penalite: int = 0
     message: str = ""
+    borne: Optional[int] = None
 
 
 class ModelePlacement:
@@ -51,6 +53,7 @@ class ModelePlacement:
     P_TROU_GROUPE = 700     # Heure creuse (trou) dans l'emploi du temps d'un groupe
     P_TROU_PROF = 150       # Heure creuse pour un formateur
     P_EFM_JOUR = 5000       # EFM placé hors de la date d'EFM prévue
+    P_PREF = 80             # Bonus (coût négatif) pour un créneau préféré honoré
 
     def __init__(
         self,
@@ -63,6 +66,7 @@ class ModelePlacement:
         occupations_groupes: Optional[Set[Tuple[int, int]]] = None,
         occupations_profs: Optional[Set[Tuple[int, int]]] = None,
         occupations_salles: Optional[Set[Tuple[int, int]]] = None,
+        criteres: Optional[List[object]] = None,
     ):
         self.seances = seances
         self.creneaux = sorted(creneaux, key=lambda c: (c.jour, c.numero_seance))
@@ -70,6 +74,7 @@ class ModelePlacement:
         self.professeurs = professeurs
         self.disponibilites = disponibilites or {}  # (prof_id, creneau_id) -> 'disponible' | 'bloque' | 'prefere'
         self.salles_compatibles_map = salles_compatibles_map or {}  # module_id -> [salle_id, ...]
+        self.criteres: List[object] = list(criteres or [])
 
         # Créneaux déjà occupés par des séances conservées (validées / verrouillées)
         self.occupations_groupes = occupations_groupes or set()  # (creneau_id, groupe_id)
@@ -100,11 +105,34 @@ class ModelePlacement:
             if s3 and s4:
                 self.paires_blocs.append((s3.id, s4.id))
 
+    # ─── Critères (patron de stratégie) ───────────────────────────────────────
+    def ajouter_critere(self, critere) -> "ModelePlacement":
+        """Ajoute un critère de placement au modèle."""
+        self.criteres.append(critere)
+        return self
+
+    def critere(self, nom: str):
+        return next((c for c in self.criteres if getattr(c, 'nom', None) == nom), None)
+
+    def poids(self, nom: str, defaut: int = 0) -> int:
+        """Poids d'un critère actif, ou valeur par défaut."""
+        critere = self.critere(nom)
+        if critere is None or not getattr(critere, 'actif', True):
+            return defaut
+        return int(getattr(critere, 'poids', defaut) or defaut)
+
+    def _poids_heures_creuses(self, ressource: str) -> int:
+        critere = self.critere('HeuresCreuses')
+        if critere is None or not getattr(critere, 'actif', True):
+            return self.P_TROU_GROUPE if ressource == 'groupe' else self.P_TROU_PROF
+        attribut = 'poids_groupe' if ressource == 'groupe' else 'poids_prof'
+        return int(getattr(critere, attribut, 0) or 0)
+
     def _get_salles_candidates(self, s: SeanceAPlacer) -> List[Salle]:
         """Détermine les salles candidates pour une séance donnée."""
         if s.mode == 'distance':
-            teams = [r for r in self.salles if r.actif and r.type_salle.code == 'TEAM']
-            return teams if teams else self.salles[:1]
+            # Une séance à distance n'occupe pas de salle physique.
+            return []
 
         compatibles_ids = self.salles_compatibles_map.get(s.module_id)
         if compatibles_ids:
@@ -154,7 +182,10 @@ class ModelePlacement:
 
         # ─── 2. Vérifications Préliminaires de Faisabilité ────────────────────
         sans_creneaux = not self.creneaux
-        sans_salle = [s for s in self.seances if not seance_candidates_salles[s.id]]
+        sans_salle = [
+            s for s in self.seances
+            if s.mode != 'distance' and not seance_candidates_salles[s.id]
+        ]
         profs_surcharges = []
         for prof in self.professeurs:
             max_heures = float(prof.heures_max_semaine or 0)
@@ -203,16 +234,7 @@ class ModelePlacement:
             for c in self.creneaux:
                 X[s.id, c.id] = model_time.NewBoolVar(f"x_{s.id}_{c.id}")
 
-        # Variable professeur Z[s_id, p_id] si multi-candidats
-        Z: Dict[Tuple[int, int], cp_model.IntVar] = {}
-        for s in self.seances:
-            cand_profs = seance_candidates_profs[s.id]
-            if len(cand_profs) > 1:
-                for p in cand_profs:
-                    Z[s.id, p.id] = model_time.NewBoolVar(f"z_{s.id}_{p.id}")
-                model_time.Add(sum(Z[s.id, p.id] for p in cand_profs) == 1)
-
-        # C1 : Chaque séance est attribuée à exactement 1 créneau
+        # C1 : Chaque séance est attribuée à exactly 1 créneau
         for s in self.seances:
             model_time.Add(sum(X[s.id, c.id] for c in self.creneaux) == 1)
 
@@ -220,13 +242,6 @@ class ModelePlacement:
         for b_id, pair in blocs_map.items():
             if len(pair) == 2:
                 s1, s2 = pair[0], pair[1]
-
-                # Même professeur si multi-candidats
-                cand_profs = seance_candidates_profs[s1.id]
-                if len(cand_profs) > 1:
-                    for p in cand_profs:
-                        if (s2.id, p.id) in Z:
-                            model_time.Add(Z[s1.id, p.id] == Z[s2.id, p.id])
 
                 pair_vars = []
                 for idx, (ca_id, cb_id) in enumerate(self.paires_blocs):
@@ -252,13 +267,15 @@ class ModelePlacement:
                 if (c.id, gid) in self.occupations_groupes:
                     model_time.Add(sum(X[sid, c.id] for sid in s_ids) == 0)
 
-        # C3 : Unicité & Disponibilité Formateur
+        # C3 : Unicité & Disponibilité Formateur.
+        # Tous les formateurs rattachés à une séance (co-enseignement) sont
+        # considérés occupés : le document demande de rattacher chaque
+        # formateur de l'unité à chaque séance.
         prof_seances_map: Dict[int, List[int]] = {}
         for s in self.seances:
             for p in seance_candidates_profs[s.id]:
                 prof_seances_map.setdefault(p.id, []).append(s.id)
 
-        # Occupation effective d'un formateur sur un créneau (tient compte du choix Z)
         prof_occ: Dict[Tuple[int, int], object] = {}
 
         for p in self.professeurs:
@@ -268,21 +285,9 @@ class ModelePlacement:
 
             for c in self.creneaux:
                 etat_dispo = self.disponibilites.get((p.id, c.id), 'disponible')
-                assigned_vars = []
-                for sid in s_ids:
-                    cand_profs = seance_candidates_profs[sid]
-                    if len(cand_profs) == 1 and cand_profs[0].id == p.id:
-                        assigned_vars.append(X[sid, c.id])
-                    elif (sid, p.id) in Z:
-                        v = model_time.NewBoolVar(f"p_{p.id}_s_{sid}_c_{c.id}")
-                        model_time.Add(v <= X[sid, c.id])
-                        model_time.Add(v <= Z[sid, p.id])
-                        model_time.Add(v >= X[sid, c.id] + Z[sid, p.id] - 1)
-                        assigned_vars.append(v)
+                assigned_vars = [X[sid, c.id] for sid in s_ids]
 
-                if (c.id, p.id) in self.occupations_profs:
-                    model_time.Add(sum(assigned_vars) == 0)
-                elif etat_dispo == 'bloque':
+                if (c.id, p.id) in self.occupations_profs or etat_dispo == 'bloque':
                     model_time.Add(sum(assigned_vars) == 0)
                 else:
                     model_time.Add(sum(assigned_vars) <= 1)
@@ -291,13 +296,10 @@ class ModelePlacement:
             # Plafond hebdomadaire du professeur (toutes affectations confondues)
             if p.heures_max_semaine:
                 max_seances_prof = int(float(p.heures_max_semaine) / 2.5)
-                prof_assign_vars = []
-                for sid in s_ids:
-                    cand_profs = seance_candidates_profs[sid]
-                    if len(cand_profs) == 1 and cand_profs[0].id == p.id:
-                        prof_assign_vars.append(sum(X[sid, c.id] for c in self.creneaux))
-                    elif (sid, p.id) in Z:
-                        prof_assign_vars.append(Z[sid, p.id])
+                prof_assign_vars = [
+                    sum(X[sid, c.id] for c in self.creneaux)
+                    for sid in s_ids
+                ]
                 if prof_assign_vars:
                     model_time.Add(sum(prof_assign_vars) <= max_seances_prof)
 
@@ -361,7 +363,7 @@ class ModelePlacement:
                 # Pénalité 10h
                 is_10h = model_time.NewBoolVar(f"g_{gid}_j_{jour}_10h")
                 model_time.Add(day_sum_var >= 4 * is_10h)
-                penalites_temps.append(self.P_10H * is_10h)
+                penalites_temps.append(self.poids('JourneeDixHeures', self.P_10H) * is_10h)
 
                 # Pénalité Surcharge (> 2 créneaux)
                 surcharge = model_time.NewIntVar(0, 2, f"g_{gid}_j_{jour}_surch")
@@ -376,7 +378,7 @@ class ModelePlacement:
                     c3_occ = sum(X[sid, s_cr_map[3]] for sid in s_ids)
                     hole_s2 = model_time.NewBoolVar(f"g_{gid}_hole_s2_j{jour}")
                     model_time.Add(c1_occ + c3_occ - c2_occ <= 1 + hole_s2)
-                    penalites_temps.append(self.P_TROU_GROUPE * hole_s2)
+                    penalites_temps.append(self._poids_heures_creuses('groupe') * hole_s2)
 
                 if 2 in s_cr_map and 3 in s_cr_map and 4 in s_cr_map:
                     c2_occ = sum(X[sid, s_cr_map[2]] for sid in s_ids)
@@ -384,7 +386,7 @@ class ModelePlacement:
                     c4_occ = sum(X[sid, s_cr_map[4]] for sid in s_ids)
                     hole_s3 = model_time.NewBoolVar(f"g_{gid}_hole_s3_j{jour}")
                     model_time.Add(c2_occ + c4_occ - c3_occ <= 1 + hole_s3)
-                    penalites_temps.append(self.P_TROU_GROUPE * hole_s3)
+                    penalites_temps.append(self._poids_heures_creuses('groupe') * hole_s3)
 
             # Pénalité Journée Vide (Lundi à Vendredi)
             for j_idx, jour in enumerate(sorted(self.creneaux_par_jour.keys())):
@@ -408,20 +410,25 @@ class ModelePlacement:
                 if all(k in s_cr_map for k in (1, 2, 3)):
                     hole_s2 = model_time.NewBoolVar(f"p_{p.id}_hole_s2_j{jour}")
                     model_time.Add(occ(1) + occ(3) - occ(2) <= 1 + hole_s2)
-                    penalites_temps.append(self.P_TROU_PROF * hole_s2)
+                    penalites_temps.append(self._poids_heures_creuses('prof') * hole_s2)
 
                 if all(k in s_cr_map for k in (2, 3, 4)):
                     hole_s3 = model_time.NewBoolVar(f"p_{p.id}_hole_s3_j{jour}")
                     model_time.Add(occ(2) + occ(4) - occ(3) <= 1 + hole_s3)
-                    penalites_temps.append(self.P_TROU_PROF * hole_s3)
+                    penalites_temps.append(self._poids_heures_creuses('prof') * hole_s3)
 
-        # Pénalité créneau préféré pour les formateurs
+        # Bonus pour les créneaux préférés des formateurs.
+        # Un coût négatif dans l'objectif encourage le solveur à y placer des
+        # séances, sans jamais rendre une solution infaisable (contrainte souple).
         for p in self.professeurs:
             s_ids = prof_seances_map.get(p.id, [])
+            if not s_ids:
+                continue
             for c in self.creneaux:
-                etat = self.disponibilites.get((p.id, c.id), 'disponible')
-                if etat == 'prefere':
-                    pass  # bonus implicite
+                if self.disponibilites.get((p.id, c.id)) == 'prefere':
+                    penalites_temps.append(
+                        -self.P_PREF * prof_occ.get((p.id, c.id), 0)
+                    )
 
         model_time.Minimize(sum(penalites_temps))
 
@@ -456,19 +463,16 @@ class ModelePlacement:
                     assigned_creneau[s.id] = c.id
                     break
 
-        # Extraction du formateur choisi si multi-candidats
-        assigned_prof: Dict[int, Optional[int]] = {}
+        # Tous les formateurs rattachés à la séance (co-enseignement).
+        assigned_profs: Dict[int, List[int]] = {}
         for s in self.seances:
-            cand_profs = seance_candidates_profs[s.id]
-            if len(cand_profs) == 1:
-                assigned_prof[s.id] = cand_profs[0].id
-            elif len(cand_profs) > 1:
-                chosen = next((p.id for p in cand_profs if solver_time.Value(Z[s.id, p.id]) == 1), cand_profs[0].id)
-                assigned_prof[s.id] = chosen
-            else:
-                assigned_prof[s.id] = None
+            assigned_profs[s.id] = [p.id for p in seance_candidates_profs[s.id]]
+        assigned_prof: Dict[int, Optional[int]] = {
+            sid: (ids[0] if ids else None) for sid, ids in assigned_profs.items()
+        }
 
         score_st1 = int(solver_time.ObjectiveValue())
+        borne_st1 = int(solver_time.BestObjectiveBound())
 
         # ─── 4. ÉTAPE 2 : Affectation des Salles ──────────────────────────────
         remaining_time = max(5.0, float(max_time_seconds) - (time.time() - start_time))
@@ -476,10 +480,13 @@ class ModelePlacement:
 
         Y: Dict[Tuple[int, int], cp_model.IntVar] = {}
         for s in self.seances:
+            if s.mode == 'distance':
+                continue
             cand_salles = seance_candidates_salles[s.id]
             for r in cand_salles:
                 Y[s.id, r.id] = model_room.NewBoolVar(f"y_{s.id}_{r.id}")
-            model_room.Add(sum(Y[s.id, r.id] for r in cand_salles) == 1)
+            if cand_salles:
+                model_room.Add(sum(Y[s.id, r.id] for r in cand_salles) == 1)
 
         # Même salle pour les Blocs de 5h
         for b_id, pair in blocs_map.items():
@@ -513,7 +520,9 @@ class ModelePlacement:
                 ) else getattr(prof, 'salle_preferee', None)
                 pref_id = getattr(pref, 'id', None)
                 if pref_id and (s.id, pref_id) in Y:
-                    penalites_salles.append(self.P_SALLE_PREF * (1 - Y[s.id, pref_id]))
+                    penalites_salles.append(
+                        self.poids('PreferenceSalle', self.P_SALLE_PREF) * (1 - Y[s.id, pref_id])
+                    )
 
         if penalites_salles:
             model_room.Minimize(sum(penalites_salles))
@@ -539,13 +548,22 @@ class ModelePlacement:
                 ),
             )
 
-        score_st2 = int(solver_room.ObjectiveValue())
+        score_st2 = int(solver_room.ObjectiveValue()) if penalites_salles else 0
 
         # Extraction des salles assignées
         assigned_salle: Dict[int, Optional[int]] = {}
         for s in self.seances:
+            if s.mode == 'distance':
+                assigned_salle[s.id] = None
+                continue
             cand_salles = seance_candidates_salles[s.id]
-            chosen_r = next((r.id for r in cand_salles if solver_room.Value(Y[s.id, r.id]) == 1), cand_salles[0].id)
+            if not cand_salles:
+                assigned_salle[s.id] = None
+                continue
+            chosen_r = next(
+                (r.id for r in cand_salles if solver_room.Value(Y[s.id, r.id]) == 1),
+                cand_salles[0].id,
+            )
             assigned_salle[s.id] = chosen_r
 
         elapsed_ms = int((time.time() - start_time) * 1000)
@@ -564,6 +582,7 @@ class ModelePlacement:
                     nature=s.nature,
                     bloc_no=s.bloc_id,
                     mode=s.mode,
+                    professeur_ids=list(assigned_profs.get(s.id, [])),
                 )
             )
 
@@ -574,5 +593,6 @@ class ModelePlacement:
             seances_placees=seances_placees,
             temps_resolution_ms=elapsed_ms,
             score_penalite=total_penalty,
+            borne=borne_st1 + score_st2,
             message=f"Planification réussie ({status_name}) en {elapsed_ms} ms. Score de pénalité : {total_penalty}.",
         )

@@ -223,6 +223,22 @@ class Command(BaseCommand):
             mod_soft.types_salles_compatibles.set([ts_sc])
             mod_anglais.types_salles_compatibles.set([ts_sc])
 
+            # Heures hebdomadaires (nécessaires au moteur de génération).
+            for module, heures in (
+                (mod_python, 5.0),
+                (mod_poo, 5.0),
+                (mod_web, 5.0),
+                (mod_soft, 5.0),
+                (mod_anglais, 5.0),
+            ):
+                if not module.heures_hebdomadaires:
+                    module.heures_hebdomadaires = heures
+                    module.save(update_fields=['heures_hebdomadaires'])
+
+            # Rattacher les modules aux filières (le moteur part des modules cochés).
+            fil_dev.modules.add(mod_python, mod_poo, mod_web, mod_soft, mod_anglais)
+            fil_id.modules.add(mod_python, mod_poo, mod_web, mod_soft, mod_anglais)
+
             # 8. Unités d'Enseignement et Volumes
             def creer_ue(module, groupe, prof, h_pres, fusion=None, passage_intensite=None):
                 if fusion:

@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react'
+import InstituteSwitcher from '../InstituteSwitcher/InstituteSwitcher'
+import { APP_NAME, NETWORK_NAME, useInstitute } from '../../config/branding'
 import './Dashboard.css'
 
 const API = 'http://localhost:3001/api'
@@ -12,6 +14,22 @@ const JOURS = [
   { id: 5, nom: 'Vendredi' },
   { id: 6, nom: 'Samedi' },
 ]
+
+const CHAMPS_PROFIL_LABELS = {
+  email: 'Email',
+  telephone: 'Téléphone',
+  statut: 'Statut',
+  heures_max_semaine: 'Heures max / semaine',
+  salle_preferee_id: 'Salle préférée',
+  salle_preferee_matin_id: 'Salle préférée (matin)',
+  salle_preferee_apm_id: 'Salle préférée (après-midi)',
+}
+
+const STATUTS_DEMANDE_PROFIL = {
+  en_attente: 'En attente',
+  approuvee: 'Approuvée',
+  refusee: 'Refusée',
+}
 
 // Slot horaires: Lundi-Jeudi & Samedi: 08h00-10h30, 10h30-13h00, 13h30-16h00, 16h00-18h30
 // Vendredi: 08h00-10h30, 10h30-12h30, 14h30-16h30, 16h30-18h30
@@ -53,12 +71,12 @@ for (const j of JOURS) {
 const SECTIONS = [
   { id: 'dev_1', order: 1, title: 'DÉVELOPPEMENT DIGITAL — 1ÈRE ANNÉE', short: 'DEV 1ère Année' },
   { id: 'dev_2', order: 2, title: 'DÉVELOPPEMENT DIGITAL — 2ÈME ANNÉE (OPTION WEB FULL STACK)', short: 'DEV 2ème Année' },
-  { id: 'id_1',  order: 3, title: 'INFRASTRUCTURE DIGITALE — 1ÈRE ANNÉE', short: 'ID 1ère Année' },
-  { id: 'id_2',  order: 4, title: 'INFRASTRUCTURE DIGITALE — 2ÈME ANNÉE (SYSTÈMES & RÉSEAUX)', short: 'ID 2ème Année' },
-  { id: 'ge_1',  order: 5, title: 'GESTION DES ENTREPRISES — 1ÈRE ANNÉE', short: 'GE 1ère Année' },
-  { id: 'ge_2',  order: 6, title: 'GESTION DES ENTREPRISES — 2ÈME ANNÉE', short: 'GE 2ème Année' },
-  { id: 'ge_3',  order: 7, title: 'GESTION DES ENTREPRISES — 3ÈME ANNÉE', short: 'GE 3ème Année' },
-  { id: 'tsm',   order: 8, title: 'Technicien Spécialisé en Météorologie', short: 'TSM Météorologie' },
+  { id: 'id_1', order: 3, title: 'INFRASTRUCTURE DIGITALE — 1ÈRE ANNÉE', short: 'ID 1ère Année' },
+  { id: 'id_2', order: 4, title: 'INFRASTRUCTURE DIGITALE — 2ÈME ANNÉE (SYSTÈMES & RÉSEAUX)', short: 'ID 2ème Année' },
+  { id: 'ge_1', order: 5, title: 'GESTION DES ENTREPRISES — 1ÈRE ANNÉE', short: 'GE 1ère Année' },
+  { id: 'ge_2', order: 6, title: 'GESTION DES ENTREPRISES — 2ÈME ANNÉE', short: 'GE 2ème Année' },
+  { id: 'ge_3', order: 7, title: 'GESTION DES ENTREPRISES — 3ÈME ANNÉE', short: 'GE 3ème Année' },
+  { id: 'tsm', order: 8, title: 'Technicien Spécialisé en Météorologie', short: 'TSM Météorologie' },
   { id: 'autre', order: 9, title: 'AUTRES SECTIONS', short: 'Autres' },
 ]
 
@@ -105,7 +123,7 @@ const apiFetch = async (url, opts = {}) => {
       const details = Array.isArray(e.details) ? e.details.join(' ') : e.details
       errMsg = e.error || e.message || e.detail || details || errMsg
       if (details && !String(errMsg).includes(details)) errMsg = `${errMsg} ${details}`
-    } catch {}
+    } catch { }
     throw new Error(errMsg)
   }
   return r.json()
@@ -242,7 +260,7 @@ function SearchableSelect({
           tabIndex={-1}
           required
           value=""
-          onChange={() => {}}
+          onChange={() => { }}
           style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }}
         />
       )}
@@ -862,7 +880,7 @@ function GroupeModal({ groupe, filieres, onClose, onSave }) {
             type="button"
             style={{ fontSize: 20, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}
           >
-            
+
           </button>
         </div>
 
@@ -1046,7 +1064,7 @@ function ProfesseurModal({ prof, salles = [], onClose, onSave }) {
             type="button"
             style={{ fontSize: 20, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}
           >
-            
+
           </button>
         </div>
 
@@ -1216,9 +1234,14 @@ function DeleteProfesseurModal({ prof, onClose, onConfirm, loading }) {
   )
 }
 
-// ─── Modal Affecter un formateur à un couple Groupe + Module ─────────────────
+// ─── Modal Affecter un formateur / définir un besoin ─────────────────────────
 function AffectationModal({ row, professeurs = [], onClose, onSave }) {
+  const [mode, setMode] = useState(
+    row?.besoinOuvert || (row?.affectations || []).length > 0 ? 'assign' : 'open'
+  )
   const [profId, setProfId] = useState('')
+  const [statut, setStatut] = useState(row?.besoinOuvert?.statut || 'a_pourvoir')
+  const [notes, setNotes] = useState(row?.besoinOuvert?.notes || '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -1229,21 +1252,46 @@ function AffectationModal({ row, professeurs = [], onClose, onSave }) {
 
   const handleSubmit = async (e) => {
     e?.preventDefault()
-    if (!profId) {
+    if (mode === 'assign' && !profId) {
       setError('Veuillez sélectionner un formateur.')
       return
     }
     setLoading(true)
     setError('')
     try {
-      const res = await apiFetch(`${API}/affectations`, {
-        method: 'POST',
-        body: JSON.stringify({
-          professeur_id: +profId,
-          module_id: row.module.id,
-          groupe_id: row.groupe.id,
-        }),
-      })
+      let res
+      if (mode === 'assign') {
+        if (row.besoinOuvert) {
+          res = await apiFetch(`${API}/affectations/${row.besoinOuvert.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ professeur_id: +profId }),
+          })
+        } else {
+          res = await apiFetch(`${API}/affectations`, {
+            method: 'POST',
+            body: JSON.stringify({
+              professeur_id: +profId,
+              module_id: row.module.id,
+              groupe_id: row.groupe.id,
+            }),
+          })
+        }
+      } else if (row.besoinOuvert) {
+        res = await apiFetch(`${API}/affectations/${row.besoinOuvert.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ statut, notes }),
+        })
+      } else {
+        res = await apiFetch(`${API}/affectations`, {
+          method: 'POST',
+          body: JSON.stringify({
+            module_id: row.module.id,
+            groupe_id: row.groupe.id,
+            statut,
+            notes,
+          }),
+        })
+      }
       onSave(res)
     } catch (err) {
       setError(err.message || 'Une erreur est survenue')
@@ -1254,10 +1302,14 @@ function AffectationModal({ row, professeurs = [], onClose, onSave }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 540 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <h3 style={{ margin: 0, fontSize: 18, color: '#0f2d5e' }}>
-            Affecter un formateur
+            {row.besoinOuvert
+              ? 'Compléter le besoin'
+              : (row.affectations || []).length > 0
+                ? 'Affecter un formateur'
+                : 'Définir le besoin'}
           </h3>
           <button
             onClick={onClose}
@@ -1295,6 +1347,16 @@ function AffectationModal({ row, professeurs = [], onClose, onSave }) {
               {row.module.heures_hebdomadaires != null ? `${row.module.heures_hebdomadaires} h` : '—'}
             </div>
           </div>
+          {row.besoinOuvert && (
+            <div style={{ alignSelf: 'center' }}>
+              <span style={{
+                background: '#fffbeb', color: '#b45309', border: '1px solid #fde68a',
+                borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700
+              }}>
+                {row.besoinOuvert.statut === 'vacataire_a_recruter' ? 'Vacataire à recruter' : 'Poste à pourvoir'}
+              </span>
+            </div>
+          )}
           {row.horsFiliere && (
             <div style={{ fontSize: 11, color: '#b45309', fontWeight: 600, alignSelf: 'center' }}>
               Module hors filière
@@ -1304,37 +1366,267 @@ function AffectationModal({ row, professeurs = [], onClose, onSave }) {
 
         <form onSubmit={handleSubmit}>
           <div className="modal-field">
-            <label>Formateur *</label>
-            <select
-              value={profId}
-              onChange={e => setProfId(e.target.value)}
-              required
-              autoFocus
+            <label>Décision</label>
+            <select value={mode} onChange={e => setMode(e.target.value)}>
+              <option value="assign">Nommer un formateur</option>
+              <option value="open">Laisser le poste à pourvoir</option>
+            </select>
+          </div>
+
+          {mode === 'assign' ? (
+            <div className="modal-field">
+              <label>Formateur *</label>
+              <select
+                value={profId}
+                onChange={e => setProfId(e.target.value)}
+                required
+                autoFocus
+              >
+                <option value="">— Sélectionner un formateur —</option>
+                {candidats.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.nom_complet}{p.matricule ? ` (${p.matricule})` : ''}
+                  </option>
+                ))}
+              </select>
+              {candidats.length === 0 && (
+                <div style={{ fontSize: 11, color: '#b45309', marginTop: 6 }}>
+                  Tous les formateurs actifs sont déjà affectés à ce couple groupe + module.
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: '#64748b', marginTop: 6, lineHeight: 1.5 }}>
+                Le formateur enseignera ce module à ce groupe. Les séances sont
+                planifiées même si aucun formateur n'est encore nommé.
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="modal-field">
+                <label>Statut du besoin</label>
+                <select value={statut} onChange={e => setStatut(e.target.value)}>
+                  <option value="a_pourvoir">Poste à pourvoir</option>
+                  <option value="vacataire_a_recruter">Vacataire à recruter</option>
+                </select>
+              </div>
+              <div className="modal-field">
+                <label>Notes / commentaire</label>
+                <input
+                  type="text"
+                  placeholder="Ex: recrutement en cours, profil recherché…"
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  maxLength={255}
+                />
+              </div>
+              <div style={{
+                fontSize: 11, color: '#1e3a8a', background: '#eff6ff',
+                border: '1px solid #bfdbfe', borderRadius: 8,
+                padding: '10px 12px', lineHeight: 1.5
+              }}>
+                Le besoin est enregistré sans formateur : la génération continuera
+                à planifier les séances de ce module pour le groupe. Vous pourrez
+                nommer un formateur plus tard.
+              </div>
+            </>
+          )}
+
+          <div className="modal-actions" style={{ marginTop: 24 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
+              Annuler
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={loading || (mode === 'assign' && candidats.length === 0)}
             >
-              <option value="">— Sélectionner un formateur —</option>
-              {candidats.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.nom_complet}{p.matricule ? ` (${p.matricule})` : ''}
+              {loading ? 'Enregistrement…' : (mode === 'assign' ? 'Affecter' : 'Enregistrer le besoin')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal Nouveau couple Groupe + Module ────────────────────────────────────
+function NouvelleAffectationModal({ groupes = [], modules = [], professeurs = [], onClose, onSave }) {
+  const [groupeId, setGroupeId] = useState('')
+  const [moduleId, setModuleId] = useState('')
+  const [mode, setMode] = useState('assign')
+  const [profId, setProfId] = useState('')
+  const [statut, setStatut] = useState('a_pourvoir')
+  const [notes, setNotes] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const groupesActifs = [...groupes]
+    .filter(g => g.actif !== false)
+    .sort((a, b) => (a.code || '').localeCompare(b.code || '', undefined, { numeric: true }))
+  const modulesTries = [...modules]
+    .sort((a, b) => (a.code || '').localeCompare(b.code || '', undefined, { numeric: true }))
+  const candidats = professeurs.filter(p => p.actif !== false)
+
+  const groupe = groupesActifs.find(g => String(g.id) === String(groupeId))
+  const module = modulesTries.find(m => String(m.id) === String(moduleId))
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault()
+    if (!groupeId) {
+      setError('Veuillez sélectionner un groupe.')
+      return
+    }
+    if (!moduleId) {
+      setError('Veuillez sélectionner un module.')
+      return
+    }
+    if (mode === 'assign' && !profId) {
+      setError('Veuillez sélectionner un formateur.')
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      const payload = {
+        groupe_id: +groupeId,
+        module_id: +moduleId,
+      }
+      if (mode === 'assign') {
+        payload.professeur_id = +profId
+      } else {
+        payload.statut = statut
+        payload.notes = notes
+      }
+      const res = await apiFetch(`${API}/affectations`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      onSave(res)
+    } catch (err) {
+      setError(err.message || 'Une erreur est survenue')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 18, color: '#0f2d5e' }}>
+            Nouveau couple Groupe + Module
+          </h3>
+          <button
+            onClick={onClose}
+            type="button"
+            style={{ fontSize: 20, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}
+          >
+            ×
+          </button>
+        </div>
+
+        {error && (
+          <div className="alert-banner error" style={{ marginBottom: 16 }}>
+            <span>{error}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit}>
+          <div className="modal-field">
+            <label>Groupe *</label>
+            <select value={groupeId} onChange={e => setGroupeId(e.target.value)} required autoFocus>
+              <option value="">— Sélectionner un groupe —</option>
+              {groupesActifs.map(g => (
+                <option key={g.id} value={g.id}>
+                  {g.code}{g.filiere_code ? ` — ${g.filiere_code}` : ''}
                 </option>
               ))}
             </select>
-            {candidats.length === 0 && (
-              <div style={{ fontSize: 11, color: '#b45309', marginTop: 6 }}>
-                Tous les formateurs actifs sont déjà affectés à ce couple groupe + module.
-              </div>
-            )}
-            <div style={{ fontSize: 11, color: '#64748b', marginTop: 6, lineHeight: 1.5 }}>
-              Le formateur enseignera ce module à ce groupe. Sans affectation, les
-              séances de ce module seront générées sans formateur.
+          </div>
+
+          <div className="modal-field">
+            <label>Module *</label>
+            <select value={moduleId} onChange={e => setModuleId(e.target.value)} required>
+              <option value="">— Sélectionner un module —</option>
+              {modulesTries.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.code} — {m.intitule}
+                  {m.heures_hebdomadaires != null ? ` (${m.heures_hebdomadaires} h/sem.)` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {groupe && module && (
+            <div style={{
+              fontSize: 12, color: '#475569', background: '#f8fafc',
+              border: '1px solid #e2e8f0', borderRadius: 8,
+              padding: '10px 12px', marginBottom: 16, lineHeight: 1.5
+            }}>
+              <strong style={{ color: '#0f2d5e' }}>{module.code}</strong> sera enseigné au groupe{' '}
+              <strong style={{ color: '#0f2d5e' }}>{groupe.code}</strong>.
+              {module.heures_hebdomadaires != null && (
+                <> Volume : <strong>{module.heures_hebdomadaires} h / semaine</strong>.</>
+              )}
             </div>
+          )}
+
+          <div className="modal-field">
+            <label>Décision</label>
+            <select value={mode} onChange={e => setMode(e.target.value)}>
+              <option value="assign">Nommer un formateur</option>
+              <option value="open">Laisser le poste à pourvoir</option>
+            </select>
+          </div>
+
+          {mode === 'assign' ? (
+            <div className="modal-field">
+              <label>Formateur *</label>
+              <select value={profId} onChange={e => setProfId(e.target.value)} required>
+                <option value="">— Sélectionner un formateur —</option>
+                {candidats.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.nom_complet}{p.matricule ? ` (${p.matricule})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <>
+              <div className="modal-field">
+                <label>Statut du besoin</label>
+                <select value={statut} onChange={e => setStatut(e.target.value)}>
+                  <option value="a_pourvoir">Poste à pourvoir</option>
+                  <option value="vacataire_a_recruter">Vacataire à recruter</option>
+                </select>
+              </div>
+              <div className="modal-field">
+                <label>Notes / commentaire</label>
+                <input
+                  type="text"
+                  placeholder="Ex: recrutement en cours, profil recherché…"
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  maxLength={255}
+                />
+              </div>
+            </>
+          )}
+
+          <div style={{
+            fontSize: 11, color: '#1e3a8a', background: '#eff6ff',
+            border: '1px solid #bfdbfe', borderRadius: 8,
+            padding: '10px 12px', lineHeight: 1.5
+          }}>
+            Le couple peut ne pas encore exister dans la filière : il sera créé ici.
+            Les séances restent planifiables même sans formateur nommé.
           </div>
 
           <div className="modal-actions" style={{ marginTop: 24 }}>
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
               Annuler
             </button>
-            <button type="submit" className="btn btn-primary" disabled={loading || candidats.length === 0}>
-              {loading ? 'Affectation…' : 'Affecter'}
+            <button type="submit" className="btn btn-primary" disabled={loading}>
+              {loading ? 'Enregistrement…' : (mode === 'assign' ? 'Affecter' : 'Enregistrer le besoin')}
             </button>
           </div>
         </form>
@@ -1346,27 +1638,40 @@ function AffectationModal({ row, professeurs = [], onClose, onSave }) {
 // ─── Modal Confirmation Suppression Affectation ──────────────────────────────
 function DeleteAffectationModal({ affectation, onClose, onConfirm, loading }) {
   if (!affectation) return null
+  const estBesoinOuvert = !affectation.professeur_id
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
         <h3 style={{ margin: 0, fontSize: 18, color: '#dc2626' }}>
-          Retirer l'affectation
+          {estBesoinOuvert ? 'Supprimer le besoin' : 'Retirer le formateur'}
         </h3>
         <p style={{ margin: '16px 0 8px', fontSize: 14, color: '#334155', lineHeight: 1.5 }}>
-          Retirer <strong>{affectation.professeur_nom}</strong> du module{' '}
-          <strong>{affectation.module_code}</strong> pour le groupe{' '}
-          <strong>{affectation.groupe_code}</strong> ?
+          {estBesoinOuvert ? (
+            <>
+              Supprimer le besoin{' '}
+              <strong>{affectation.statut_label || 'à pourvoir'}</strong> pour le module{' '}
+              <strong>{affectation.module_code}</strong> et le groupe{' '}
+              <strong>{affectation.groupe_code}</strong> ?
+            </>
+          ) : (
+            <>
+              Retirer <strong>{affectation.professeur_nom}</strong> du module{' '}
+              <strong>{affectation.module_code}</strong> pour le groupe{' '}
+              <strong>{affectation.groupe_code}</strong> ?
+            </>
+          )}
         </p>
         <p style={{ margin: '0 0 20px', fontSize: 12, color: '#64748b', background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', lineHeight: 1.4 }}>
-          Les séances de ce module pour ce groupe seront ensuite générées sans formateur,
-          sauf si un autre formateur est affecté.
+          {estBesoinOuvert
+            ? "Le couple module / groupe restera visible et pourra être pourvu plus tard depuis cette page."
+            : "Le besoin restera enregistré comme « poste à pourvoir » : les séances seront générées sans formateur tant qu'aucun autre formateur n'est nommé."}
         </p>
         <div className="modal-actions">
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
             Annuler
           </button>
           <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={loading}>
-            {loading ? 'Suppression…' : 'Oui, retirer'}
+            {loading ? 'Suppression…' : (estBesoinOuvert ? 'Oui, supprimer' : 'Oui, retirer')}
           </button>
         </div>
       </div>
@@ -1443,7 +1748,7 @@ function SalleModal({ salle, typesSalles, onClose, onSave }) {
             type="button"
             style={{ fontSize: 20, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}
           >
-            
+
           </button>
         </div>
 
@@ -1541,7 +1846,7 @@ function DeleteSalleModal({ salle, onClose, onConfirm, loading }) {
 }
 
 // ─── Modal Créer / Modifier Module ───────────────────────────────────────────
-function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
+function ModuleModal({ module, modules = [], typesSalles = [], onClose, onSave }) {
   const isEdit = Boolean(module?.id)
   const [code, setCode] = useState(module?.code || '')
   const [intitule, setIntitule] = useState(module?.intitule || '')
@@ -1556,6 +1861,12 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
   const [typesCompatibles, setTypesCompatibles] = useState(
     module?.types_salles_ids || module?.types_salles_compatibles || []
   )
+  const [prerequisIds, setPrerequisIds] = useState(
+    Array.isArray(module?.prerequis_ids)
+      ? module.prerequis_ids.map(Number)
+      : (module?.prerequis || []).map(p => p.id)
+  )
+  const [prerequisSearch, setPrerequisSearch] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -1564,6 +1875,21 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     )
   }
+
+  const togglePrerequis = (id) => {
+    setPrerequisIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
+  const modulesPrerequis = modules
+    .filter(m => String(m.id) !== String(module?.id))
+    .filter(m => {
+      const q = prerequisSearch.trim().toLowerCase()
+      if (!q) return true
+      return (m.code || '').toLowerCase().includes(q)
+        || (m.intitule || '').toLowerCase().includes(q)
+    })
 
   const handleSubmit = async (e) => {
     e?.preventDefault()
@@ -1588,6 +1914,7 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
         seances_2_5_autorisees: seances25,
         heures_hebdomadaires: heuresHebdo === '' ? 0 : +heuresHebdo,
         types_salles_compatibles: typesCompatibles.map(Number),
+        prerequis_ids: prerequisIds.map(Number),
       }
       const res = isEdit
         ? await apiFetch(`${API}/modules/${module.id}`, { method: 'PUT', body: JSON.stringify(payload) })
@@ -1699,6 +2026,39 @@ function ModuleModal({ module, typesSalles = [], onClose, onSave }) {
               Volume horaire planifié chaque semaine pour ce module, pour chaque groupe
               qui l'étudie. Les séances sont arrondies à 2,5 h (ou à 5 h si les séances
               de 2,5 h sont désactivées).
+            </div>
+          </div>
+
+          <div className="modal-field">
+            <label>Modules prérequis</label>
+            <input
+              type="text"
+              placeholder="Rechercher un module (code ou intitulé)…"
+              value={prerequisSearch}
+              onChange={e => setPrerequisSearch(e.target.value)}
+              style={{ marginBottom: 8 }}
+            />
+            <div style={{
+              maxHeight: 150, overflowY: 'auto', border: '1px solid #e2e8f0',
+              borderRadius: 8, padding: '8px 10px', background: '#f8fafc'
+            }}>
+              {modulesPrerequis.length === 0 ? (
+                <div style={{ fontSize: 12, color: '#94a3b8' }}>Aucun module disponible.</div>
+              ) : modulesPrerequis.map(m => (
+                <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#334155', padding: '3px 0' }}>
+                  <input
+                    type="checkbox"
+                    checked={prerequisIds.includes(m.id)}
+                    onChange={() => togglePrerequis(m.id)}
+                    style={{ width: 15, height: 15, cursor: 'pointer' }}
+                  />
+                  <strong>{m.code}</strong> — {m.intitule}
+                </label>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, lineHeight: 1.5 }}>
+              Le moteur planifie ce module après la fin de chacun de ses prérequis.
+              Laissez vide pour ne poser aucune contrainte.
             </div>
           </div>
 
@@ -2203,7 +2563,110 @@ function DeleteIndispoModal({ indispo, onClose, onConfirm, loading }) {
 }
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
+const DASH_NAV = [
+  {
+    id: 'emploi',
+    label: 'Emploi du temps',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+        <line x1="16" y1="2" x2="16" y2="6" />
+        <line x1="8" y1="2" x2="8" y2="6" />
+        <line x1="3" y1="10" x2="21" y2="10" />
+      </svg>
+    ),
+  },
+  {
+    id: 'groupes',
+    label: 'Groupes',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    ),
+  },
+  {
+    id: 'profs',
+    label: 'Formateurs',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
+        <path d="M6 12v5c3 3 9 3 12 0v-5" />
+      </svg>
+    ),
+  },
+  {
+    id: 'affectations',
+    label: 'Affectations',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+      </svg>
+    ),
+  },
+  {
+    id: 'demandes',
+    label: 'Demandes profil',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+        <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'salles',
+    label: 'Salles',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M3 21h18" />
+        <path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16" />
+        <path d="M14 12h.01" />
+      </svg>
+    ),
+  },
+  {
+    id: 'modules',
+    label: 'Modules',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'filieres',
+    label: 'Filières',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <polygon points="12 2 2 7 12 12 22 7 12 2" />
+        <polyline points="2 17 12 22 22 17" />
+        <polyline points="2 12 12 17 22 12" />
+      </svg>
+    ),
+  },
+  {
+    id: 'indispos',
+    label: 'Période-off',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+        <line x1="16" y1="2" x2="16" y2="6" />
+        <line x1="8" y1="2" x2="8" y2="6" />
+        <line x1="3" y1="10" x2="21" y2="10" />
+        <line x1="9" y1="15" x2="15" y2="15" />
+      </svg>
+    ),
+  },
+]
+
 export default function Dashboard({ role = 'admin', onLogout }) {
+  const [institute] = useInstitute()
   const [activeNav, setActiveNav] = useState('emploi')
   const [semaines, setSemaines] = useState([])
   const [selectedSemaine, setSelectedSemaine] = useState(null)
@@ -2218,6 +2681,11 @@ export default function Dashboard({ role = 'admin', onLogout }) {
   const [modules, setModules] = useState([])
   const [secteurs, setSecteurs] = useState([])
   const [stats, setStats] = useState(null)
+
+  // Demandes de modification de profil formateur
+  const [demandesProfil, setDemandesProfil] = useState([])
+  const [commentairesDemandes, setCommentairesDemandes] = useState({})
+  const [traitementDemande, setTraitementDemande] = useState(null)
 
   // Filters
   const [selectedSectionFilter, setSelectedSectionFilter] = useState('all')
@@ -2280,6 +2748,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
   // Affectations Groupe + Module → Formateur
   const [affectations, setAffectations] = useState([])
   const [affectationRow, setAffectationRow] = useState(null)
+  const [nouvelleAffectation, setNouvelleAffectation] = useState(false)
   const [deletingAffectation, setDeletingAffectation] = useState(null)
   const [deletingAffectationLoading, setDeletingAffectationLoading] = useState(false)
   const [affectationSearch, setAffectationSearch] = useState('')
@@ -2305,7 +2774,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
           sw = await apiFetch(`${API}/semaines`)
         }
 
-        const [g, p, sl, cr, u, f, ts, hc, m, sec, ind, aff] = await Promise.all([
+        const [g, p, sl, cr, u, f, ts, hc, m, sec, ind, aff, dp] = await Promise.all([
           apiFetch(`${API}/groupes`),
           apiFetch(`${API}/professeurs`),
           apiFetch(`${API}/salles`),
@@ -2318,6 +2787,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
           apiFetch(`${API}/secteurs`).catch(() => []),
           apiFetch(`${API}/indisponibilites`).catch(() => []),
           apiFetch(`${API}/affectations`).catch(() => []),
+          apiFetch(`${API}/demandes-profil`).catch(() => []),
         ])
         setSemaines(sw)
         setGroupes(g)
@@ -2331,6 +2801,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
         setSecteurs(sec)
         setIndisponibilites(ind)
         setAffectations(aff)
+        setDemandesProfil(Array.isArray(dp) ? dp : [])
         setDbStatus(hc.status)
         if (sw.length > 0) setSelectedSemaine(sw[0])
       } catch (e) {
@@ -2559,21 +3030,29 @@ export default function Dashboard({ role = 'admin', onLogout }) {
     const rows = []
     const vus = new Set()
 
+    const construireRow = (g, filiere, module, list, horsFiliere = false) => {
+      const assignees = list.filter(a => a.professeur_id)
+      const besoinOuvert = list.find(a => !a.professeur_id) || null
+      return {
+        key: `${g.id}-${module.id}`,
+        groupe: g,
+        filiere,
+        module,
+        affectations: assignees,
+        besoinOuvert,
+        horsFiliere,
+      }
+    }
+
     groupes.forEach(g => {
       const filiere = filieres.find(f => f.id === g.filiere_id)
-      ;(filiere?.module_ids || []).forEach(moduleId => {
-        const module = modules.find(m => m.id === moduleId)
-        if (!module) return
-        const key = `${g.id}-${moduleId}`
-        vus.add(key)
-        rows.push({
-          key,
-          groupe: g,
-          filiere,
-          module,
-          affectations: parCouple.get(key) || [],
+        ; (filiere?.module_ids || []).forEach(moduleId => {
+          const module = modules.find(m => m.id === moduleId)
+          if (!module) return
+          const key = `${g.id}-${moduleId}`
+          vus.add(key)
+          rows.push(construireRow(g, filiere, module, parCouple.get(key) || []))
         })
-      })
     })
 
     // Affectations existantes dont le module n'est plus coché dans la filière.
@@ -2583,14 +3062,13 @@ export default function Dashboard({ role = 'admin', onLogout }) {
       const groupe = groupes.find(g => g.id === a.groupe_id)
       const module = modules.find(m => m.id === a.module_id)
       if (!groupe || !module) return
-      rows.push({
-        key,
+      rows.push(construireRow(
         groupe,
-        filiere: filieres.find(f => f.id === groupe.filiere_id),
+        filieres.find(f => f.id === groupe.filiere_id),
         module,
-        affectations: list,
-        horsFiliere: true,
-      })
+        list,
+        true,
+      ))
     })
 
     return rows.sort((a, b) => {
@@ -2614,37 +3092,129 @@ export default function Dashboard({ role = 'admin', onLogout }) {
         )
       const matchFiliere = affectationFiliereFilter === 'all' ||
         String(row.groupe.filiere_id) === String(affectationFiliereFilter)
+      const sansFormateur = row.affectations.length === 0
+      const statutOuvert = row.besoinOuvert?.statut || null
       const matchStatut = affectationStatutFilter === 'all' ||
-        (affectationStatutFilter === 'affecte'
-          ? row.affectations.length > 0
-          : row.affectations.length === 0)
+        (affectationStatutFilter === 'affecte' && !sansFormateur) ||
+        (affectationStatutFilter === 'sans_formateur' && sansFormateur) ||
+        (affectationStatutFilter === 'a_pourvoir' && sansFormateur && statutOuvert === 'a_pourvoir') ||
+        (affectationStatutFilter === 'vacataire' && sansFormateur && statutOuvert === 'vacataire_a_recruter')
       return matchSearch && matchFiliere && matchStatut
     })
   }, [affectationRows, affectationSearch, affectationFiliereFilter, affectationStatutFilter])
 
+  // ─── Demandes de modification de profil ────────────────────────────────────
+  const nomSalleProfil = (id) => {
+    if (!id) return 'Aucune'
+    const salle = salles.find(s => String(s.id) === String(id))
+    return salle?.nom || `Salle #${id}`
+  }
+
+  const valeurProfilAffichee = (cle, valeur) => {
+    if (cle.startsWith('salle_')) return nomSalleProfil(valeur)
+    if (cle === 'heures_max_semaine') {
+      return valeur === null || valeur === undefined || valeur === '' ? '—' : `${valeur} h`
+    }
+    if (cle === 'statut') return valeur === 'vacataire' ? 'Vacataire' : 'Permanent'
+    return valeur || '—'
+  }
+
+  const changementsDemandeProfil = (demande) => {
+    const donnees = demande?.donnees || {}
+    const actuel = demande?.actuel || {}
+    return Object.entries(donnees)
+      .map(([cle, apres]) => ({
+        cle,
+        label: CHAMPS_PROFIL_LABELS[cle] || cle,
+        avant: valeurProfilAffichee(cle, actuel[cle]),
+        apres: valeurProfilAffichee(cle, apres),
+      }))
+      .filter(changement => changement.avant !== changement.apres)
+  }
+
+  const demandesProfilEnAttente = useMemo(
+    () => demandesProfil.filter(d => d.statut === 'en_attente'),
+    [demandesProfil]
+  )
+
+  const demandesProfilTraitees = useMemo(
+    () => demandesProfil.filter(d => d.statut !== 'en_attente'),
+    [demandesProfil]
+  )
+
+  const traiterDemandeProfil = async (demande, decision) => {
+    setTraitementDemande(demande.id)
+    try {
+      const res = await apiFetch(
+        `${API}/demandes-profil/${demande.id}/${decision === 'approuvee' ? 'approuver' : 'refuser'}`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            commentaire_admin: (commentairesDemandes[demande.id] || '').trim(),
+          }),
+        }
+      )
+      setDemandesProfil(prev => prev.map(d => (d.id === demande.id ? res.demande : d)))
+      if (res.professeur) {
+        setProfesseurs(prev => prev.map(p => (p.id === res.professeur.id ? res.professeur : p)))
+      }
+      addToast(
+        decision === 'approuvee' ? 'Demande de profil approuvée.' : 'Demande de profil refusée.',
+        'success'
+      )
+    } catch (e) {
+      addToast(e.message, 'error')
+    } finally {
+      setTraitementDemande(null)
+    }
+  }
+
   const handleSaveAffectation = (saved) => {
     setAffectations(prev => (
-      prev.some(a => a.id === saved.id) ? prev : [...prev, saved]
+      prev.some(a => a.id === saved.id)
+        ? prev.map(a => (a.id === saved.id ? saved : a))
+        : [...prev, saved]
     ))
     addToast(
-      `${saved.professeur_nom} affecté à ${saved.module_code} / ${saved.groupe_code}`,
+      saved.professeur_nom
+        ? `${saved.professeur_nom} affecté à ${saved.module_code} / ${saved.groupe_code}`
+        : `Besoin « ${saved.statut_label} » enregistré pour ${saved.module_code} / ${saved.groupe_code}`,
       'success'
     )
     setAffectationRow(null)
-    apiFetch(`${API}/professeurs`).then(setProfesseurs).catch(() => {})
+    apiFetch(`${API}/professeurs`).then(setProfesseurs).catch(() => { })
   }
 
   const handleDeleteAffectationConfirm = async () => {
     if (!deletingAffectation) return
     setDeletingAffectationLoading(true)
+    const cible = deletingAffectation
     try {
-      const res = await apiFetch(`${API}/affectations/${deletingAffectation.id}`, {
-        method: 'DELETE',
-      })
-      setAffectations(prev => prev.filter(a => a.id !== deletingAffectation.id))
-      addToast(res.message || 'Affectation retirée.', 'success')
+      if (cible.professeur_id) {
+        // On conserve le besoin : il redevient un poste à pourvoir.
+        try {
+          const res = await apiFetch(`${API}/affectations/${cible.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ professeur_id: null, statut: 'a_pourvoir' }),
+          })
+          setAffectations(prev => prev.map(a => (a.id === res.id ? res : a)))
+          addToast(
+            `Formateur retiré. Le besoin reste à pourvoir pour ${res.module_code} / ${res.groupe_code}.`,
+            'success'
+          )
+        } catch {
+          // Un besoin ouvert existait déjà pour ce couple : on retire la ligne.
+          await apiFetch(`${API}/affectations/${cible.id}`, { method: 'DELETE' })
+          setAffectations(prev => prev.filter(a => a.id !== cible.id))
+          addToast('Formateur retiré. Le besoin à pourvoir est déjà enregistré.', 'success')
+        }
+      } else {
+        const res = await apiFetch(`${API}/affectations/${cible.id}`, { method: 'DELETE' })
+        setAffectations(prev => prev.filter(a => a.id !== cible.id))
+        addToast(res.message || 'Besoin supprimé.', 'success')
+      }
       setDeletingAffectation(null)
-      apiFetch(`${API}/professeurs`).then(setProfesseurs).catch(() => {})
+      apiFetch(`${API}/professeurs`).then(setProfesseurs).catch(() => { })
     } catch (err) {
       addToast(err.message || "Erreur lors du retrait de l'affectation", 'error')
     } finally {
@@ -2749,7 +3319,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
     setFiliereModalOpen(false)
     setEditingFiliere(null)
     // Un nouveau secteur a pu être créé depuis la modale : rafraîchir la liste.
-    apiFetch(`${API}/secteurs`).then(setSecteurs).catch(() => {})
+    apiFetch(`${API}/secteurs`).then(setSecteurs).catch(() => { })
   }
 
   const handleDeleteFiliereConfirm = async () => {
@@ -2960,7 +3530,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.setAttribute('href', url)
-    link.setAttribute('download', `Emploi_NTIC2_Semaine_${selectedSemaine.numero}.csv`)
+    link.setAttribute('download', `Emploi_${institute.groupPrefix}_Semaine_${selectedSemaine.numero}.csv`)
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -2978,40 +3548,47 @@ export default function Dashboard({ role = 'admin', onLogout }) {
       {/* ── Sidebar ── */}
       <aside className="dash-sidebar">
         <div className="dash-sidebar-logo">
-          <div>
-            <h2>GestEmploi</h2>
-            <span>ISTA NTIC 2</span>
+          <span className="dash-sidebar-brand-mark" aria-hidden="true">G</span>
+          <div className="dash-sidebar-brand-text">
+            <h2>{APP_NAME}</h2>
+            <span>{NETWORK_NAME} · OFPPT</span>
           </div>
         </div>
 
-        <nav className="dash-nav">
-          {[
-            { id: 'emploi',  label: 'Emploi du temps' },
-            { id: 'groupes', label: 'Groupes' },
-            { id: 'profs',   label: 'Formateurs' },
-            { id: 'affectations', label: 'Affectations' },
-            { id: 'salles',  label: 'Salles' },
-            { id: 'modules', label: 'Modules' },
-            { id: 'filieres', label: 'Filières' },
-            { id: 'indispos', label: 'Congés / Jours libres' },
-          ].map(item => (
+        <div className="dash-sidebar-workspace">
+          <span className="dash-sidebar-workspace-label">Espace de travail</span>
+          <InstituteSwitcher variant="dark" />
+        </div>
+
+        <nav className="dash-nav" aria-label="Navigation du tableau de bord">
+          <span className="dash-nav-section">Pilotage</span>
+          {DASH_NAV.map(item => (
             <button
               key={item.id}
               className={`dash-nav-item ${activeNav === item.id ? 'active' : ''}`}
               onClick={() => setActiveNav(item.id)}
+              title={item.label}
             >
+              <span className="nav-icon" aria-hidden="true">{item.icon}</span>
               <span>{item.label}</span>
             </button>
           ))}
         </nav>
 
         <div className="dash-sidebar-footer">
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', marginBottom: 10, paddingLeft: 12 }}>
-            Base de données: <span style={{ color: dbStatus === 'ok' ? '#4ade80' : '#f87171', fontWeight: 600 }}>
+          <div className="dash-db-status">
+            <span className="dash-db-dot" style={{ background: dbStatus === 'ok' ? '#4ade80' : '#f87171' }} aria-hidden="true"></span>
+            <span>Base de données</span>
+            <strong style={{ color: dbStatus === 'ok' ? '#4ade80' : '#f87171' }}>
               {dbStatus === 'ok' ? 'Connectée' : 'Erreur'}
-            </span>
+            </strong>
           </div>
           <button className="dash-logout-btn" onClick={onLogout}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
             <span>Déconnexion</span>
           </button>
         </div>
@@ -3020,26 +3597,60 @@ export default function Dashboard({ role = 'admin', onLogout }) {
       {/* ── Main Area ── */}
       <main className="dash-main">
         <header className="dash-topbar">
-          <h1>
-            {activeNav === 'emploi'  && 'Emploi du temps — ISTA NTIC 2'}
-            {activeNav === 'groupes' && 'Gestion des Groupes'}
-            {activeNav === 'profs'   && 'Gestion des Formateurs'}
-            {activeNav === 'affectations' && 'Affectations Groupe + Module'}
-            {activeNav === 'salles'  && 'Salles et Locaux'}
-            {activeNav === 'modules' && 'Gestion des Modules'}
-            {activeNav === 'filieres' && 'Gestion des Filières'}
-            {activeNav === 'indispos' && 'Congés & Jours libres'}
-          </h1>
+          <div className="dash-topbar-heading">
+            <h1>
+              {activeNav === 'emploi' && 'Emploi du temps'}
+              {activeNav === 'groupes' && 'Gestion des Groupes'}
+              {activeNav === 'profs' && 'Gestion des Formateurs'}
+              {activeNav === 'affectations' && 'Affectations Groupe + Module'}
+              {activeNav === 'demandes' && 'Validation des profils formateurs'}
+              {activeNav === 'salles' && 'Salles et Locaux'}
+              {activeNav === 'modules' && 'Gestion des Modules'}
+              {activeNav === 'filieres' && 'Gestion des Filières'}
+              {activeNav === 'indispos' && 'Congés & Jours libres'}
+            </h1>
+            <p className="dash-topbar-sub">
+              {institute.name} · {institute.district}, {institute.city}
+            </p>
+          </div>
           <div className="topbar-right">
-            <span style={{ fontSize: 13, color: '#475569', fontWeight: 500 }}>
-              {role === 'admin' ? 'Administrateur' : 'Formateur'}
+            <span className="dash-topbar-institute">
+              <span className="dash-topbar-institute-dot" aria-hidden="true"></span>
+              {institute.code}
             </span>
+            <div className="dash-topbar-user">
+              <span className="dash-topbar-avatar" aria-hidden="true">
+                {role === 'admin' ? 'AD' : 'FO'}
+              </span>
+              <div className="dash-topbar-user-text">
+                <strong>{role === 'admin' ? 'Administrateur' : 'Formateur'}</strong>
+                <span>{institute.shortName}</span>
+              </div>
+            </div>
           </div>
         </header>
 
         <div className="dash-content">
           {activeNav === 'emploi' && (
             <>
+              {/* ── KPI Overview ── */}
+              <div className="stats-grid">
+                {[
+                  { id: 'seances', label: 'Séances cette semaine', value: seances.length, tone: 'blue', icon: DASH_NAV[0].icon },
+                  { id: 'groupes', label: 'Groupes actifs', value: groupes.length, tone: 'green', icon: DASH_NAV[1].icon },
+                  { id: 'formateurs', label: 'Formateurs', value: professeurs.length, tone: 'violet', icon: DASH_NAV[2].icon },
+                  { id: 'salles', label: 'Salles', value: salles.length, tone: 'amber', icon: DASH_NAV[5].icon },
+                ].map(kpi => (
+                  <div key={kpi.id} className="stat-card">
+                    <div className={`stat-icon ${kpi.tone}`} aria-hidden="true">{kpi.icon}</div>
+                    <div className="stat-info">
+                      <h3>{kpi.value}</h3>
+                      <p>{kpi.label}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
               {/* ── Controls Bar ── */}
               <div className="controls-bar">
                 {/* Week selector */}
@@ -3152,7 +3763,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
               {/* ── Official Header ── */}
               <div style={{ textAlign: 'center', margin: '16px 0 12px' }}>
                 <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0f2d5e' }}>
-                  Emploi du temps - NTIC2
+                  Emploi du temps — {institute.shortName}
                 </h2>
                 {selectedSemaine && (
                   <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: 13 }}>
@@ -3547,7 +4158,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                       {filteredGroupesList.length === 0 ? (
                         <tr>
                           <td colSpan={8} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
-                            
+
                             <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>Aucun groupe trouvé</div>
                             <div style={{ fontSize: 13, marginTop: 4 }}>Essayez de modifier vos critères de recherche</div>
                           </td>
@@ -3827,7 +4438,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                       {filteredProfsList.length === 0 ? (
                         <tr>
                           <td colSpan={10} style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
-                            
+
                             <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>Aucun formateur trouvé</div>
                             <div style={{ fontSize: 13, marginTop: 4 }}>Modifiez votre filtre ou terme de recherche</div>
                           </td>
@@ -4032,11 +4643,11 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                       borderRadius: 20,
                       border: '1px solid #bfdbfe'
                     }}>
-                      {affectations.length} affectation{affectations.length > 1 ? 's' : ''}
+                      {affectations.filter(a => a.professeur_id).length} affectation{affectations.filter(a => a.professeur_id).length > 1 ? 's' : ''} nommée{affectations.filter(a => a.professeur_id).length > 1 ? 's' : ''}
                     </span>
                   </div>
                   <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
-                    Chaque couple Groupe + Module provient des modules cochés dans la filière du groupe.
+                    Un besoin existe par couple Groupe + Module, même sans formateur nommé.
                   </p>
                 </div>
                 <div style={{
@@ -4051,6 +4662,15 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                     {affectationRows.filter(r => r.affectations.length === 0).length}
                   </strong>{' '}
                   sans formateur
+                  {affectationRows.some(r => r.besoinOuvert?.statut === 'vacataire_a_recruter') && (
+                    <>
+                      {' · '}
+                      <strong style={{ color: '#c2410c' }}>
+                        {affectationRows.filter(r => r.besoinOuvert?.statut === 'vacataire_a_recruter').length}
+                      </strong>{' '}
+                      vacataire{affectationRows.filter(r => r.besoinOuvert?.statut === 'vacataire_a_recruter').length > 1 ? 's' : ''} à recruter
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -4087,7 +4707,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                 >
                   Modules
                 </button>
-                <span>3. affectez ici un formateur par couple. Sans formateur, les séances restent planifiées (sans formateur).</span>
+                <span>3. nommez un formateur ou laissez le poste « à pourvoir » / « vacataire à recruter ». Sans formateur, les séances restent planifiées.</span>
               </div>
 
               {/* Filters toolbar */}
@@ -4162,7 +4782,9 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                   >
                     <option value="all">Tous</option>
                     <option value="affecte">Affectés</option>
-                    <option value="non_affecte">Sans formateur</option>
+                    <option value="a_pourvoir">À pourvoir</option>
+                    <option value="vacataire">Vacataires à recruter</option>
+                    <option value="sans_formateur">Sans formateur (tous)</option>
                   </select>
                 </div>
 
@@ -4181,8 +4803,18 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                   </button>
                 )}
 
-                <div style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b' }}>
-                  Affichage de <strong>{filteredAffectationRows.length}</strong> sur {affectationRows.length} couples
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ fontSize: 12, color: '#64748b' }}>
+                    Affichage de <strong>{filteredAffectationRows.length}</strong> sur {affectationRows.length} couples
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => setNouvelleAffectation(true)}
+                    style={{ height: 38, padding: '0 14px', fontSize: 12, whiteSpace: 'nowrap' }}
+                  >
+                    + Nouveau couple
+                  </button>
                 </div>
               </div>
 
@@ -4213,7 +4845,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                               Aucun couple groupe/module à afficher
                             </div>
                             <div style={{ fontSize: 13, marginTop: 6 }}>
-                              Cochez des modules dans les filières pour faire apparaître les affectations.
+                              Cochez des modules dans les filières, ou créez un couple avec « + Nouveau couple ».
                             </div>
                           </td>
                         </tr>
@@ -4253,60 +4885,101 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                               : '—'}
                           </td>
                           <td style={{ padding: '12px 18px' }}>
-                            {row.affectations.length === 0 ? (
-                              <span style={{
-                                background: '#fffbeb',
-                                color: '#b45309',
-                                border: '1px solid #fde68a',
-                                borderRadius: 20,
-                                padding: '3px 10px',
-                                fontSize: 11,
-                                fontWeight: 700
-                              }}>
-                                Non affecté
-                              </span>
-                            ) : (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                {row.affectations.map(a => (
-                                  <span
-                                    key={a.id}
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                              {row.affectations.map(a => (
+                                <span
+                                  key={a.id}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    background: '#f0fdf4',
+                                    color: '#15803d',
+                                    border: '1px solid #bbf7d0',
+                                    borderRadius: 20,
+                                    padding: '3px 6px 3px 10px',
+                                    fontSize: 11,
+                                    fontWeight: 600
+                                  }}
+                                >
+                                  {a.professeur_nom}
+                                  <button
+                                    type="button"
+                                    title="Retirer ce formateur"
+                                    onClick={() => setDeletingAffectation(a)}
                                     style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: 6,
-                                      background: '#f0fdf4',
-                                      color: '#15803d',
-                                      border: '1px solid #bbf7d0',
-                                      borderRadius: 20,
-                                      padding: '3px 6px 3px 10px',
+                                      border: 'none',
+                                      background: '#dcfce7',
+                                      color: '#166534',
+                                      width: 16,
+                                      height: 16,
+                                      borderRadius: '50%',
+                                      cursor: 'pointer',
                                       fontSize: 11,
-                                      fontWeight: 600
+                                      lineHeight: '14px',
+                                      padding: 0
                                     }}
                                   >
-                                    {a.professeur_nom}
-                                    <button
-                                      type="button"
-                                      title="Retirer cette affectation"
-                                      onClick={() => setDeletingAffectation(a)}
-                                      style={{
-                                        border: 'none',
-                                        background: '#dcfce7',
-                                        color: '#166534',
-                                        width: 16,
-                                        height: 16,
-                                        borderRadius: '50%',
-                                        cursor: 'pointer',
-                                        fontSize: 11,
-                                        lineHeight: '14px',
-                                        padding: 0
-                                      }}
-                                    >
-                                      ×
-                                    </button>
-                                  </span>
-                                ))}
-                              </div>
-                            )}
+                                    ×
+                                  </button>
+                                </span>
+                              ))}
+
+                              {row.besoinOuvert && (
+                                <span
+                                  title={row.besoinOuvert.notes || ''}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    background: row.besoinOuvert.statut === 'vacataire_a_recruter' ? '#fff7ed' : '#fffbeb',
+                                    color: row.besoinOuvert.statut === 'vacataire_a_recruter' ? '#c2410c' : '#b45309',
+                                    border: `1px solid ${row.besoinOuvert.statut === 'vacataire_a_recruter' ? '#fed7aa' : '#fde68a'}`,
+                                    borderRadius: 20,
+                                    padding: '3px 6px 3px 10px',
+                                    fontSize: 11,
+                                    fontWeight: 700
+                                  }}
+                                >
+                                  {row.besoinOuvert.statut === 'vacataire_a_recruter'
+                                    ? 'Vacataire à recruter'
+                                    : 'Poste à pourvoir'}
+                                  <button
+                                    type="button"
+                                    title="Supprimer ce besoin"
+                                    onClick={() => setDeletingAffectation(row.besoinOuvert)}
+                                    style={{
+                                      border: 'none',
+                                      background: 'transparent',
+                                      color: 'inherit',
+                                      width: 16,
+                                      height: 16,
+                                      borderRadius: '50%',
+                                      cursor: 'pointer',
+                                      fontSize: 11,
+                                      lineHeight: '14px',
+                                      padding: 0
+                                    }}
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              )}
+
+                              {row.affectations.length === 0 && !row.besoinOuvert && (
+                                <span style={{
+                                  background: '#f1f5f9',
+                                  color: '#64748b',
+                                  border: '1px solid #e2e8f0',
+                                  borderRadius: 20,
+                                  padding: '3px 10px',
+                                  fontSize: 11,
+                                  fontWeight: 700
+                                }}>
+                                  Non affecté
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td style={{ padding: '12px 18px', textAlign: 'right' }}>
                             <button
@@ -4315,7 +4988,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                               style={{ padding: '5px 10px', fontSize: 12 }}
                               onClick={() => setAffectationRow(row)}
                             >
-                              + Affecter
+                              {row.besoinOuvert ? 'Gérer le besoin' : (row.affectations.length ? '+ Affecter' : '+ Définir')}
                             </button>
                           </td>
                         </tr>
@@ -4323,6 +4996,244 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── DEMANDES PROFIL VIEW ── */}
+          {activeNav === 'demandes' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <div style={{
+                background: '#fff',
+                borderRadius: 12,
+                padding: '20px 24px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 16
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <h2 style={{ margin: 0, fontSize: 20, color: '#0f2d5e', fontWeight: 700 }}>
+                      Demandes de modification de profil
+                    </h2>
+                    <span style={{
+                      background: '#fef3c7',
+                      color: '#92400e',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      borderRadius: 20,
+                      border: '1px solid #fde68a'
+                    }}>
+                      {demandesProfilEnAttente.length} en attente
+                    </span>
+                  </div>
+                  <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+                    Les formateurs envoient leurs demandes depuis « Mon Profil ». Validez ou refusez chaque changement.
+                  </p>
+                </div>
+                <div style={{ fontSize: 12, color: '#64748b', textAlign: 'right', lineHeight: 1.6 }}>
+                  <strong style={{ color: '#0f2d5e' }}>{demandesProfil.length}</strong> demande{demandesProfil.length > 1 ? 's' : ''} au total
+                  <br />
+                  <strong style={{ color: '#b45309' }}>{demandesProfilEnAttente.length}</strong> à traiter
+                </div>
+              </div>
+
+              {demandesProfilEnAttente.length === 0 ? (
+                <div style={{
+                  background: '#f8fafc',
+                  border: '1px dashed #cbd5e1',
+                  borderRadius: 12,
+                  padding: '40px 20px',
+                  textAlign: 'center',
+                  fontSize: 13.5,
+                  color: '#64748b'
+                }}>
+                  <strong style={{ display: 'block', color: '#334155', fontSize: 15, marginBottom: 4 }}>
+                    Aucune demande en attente
+                  </strong>
+                  Les nouvelles demandes des formateurs apparaîtront ici.
+                </div>
+              ) : (
+                demandesProfilEnAttente.map(demande => {
+                  const changements = changementsDemandeProfil(demande)
+                  const enCours = traitementDemande === demande.id
+                  return (
+                    <div key={demande.id} style={{
+                      background: '#fff',
+                      borderRadius: 12,
+                      border: '1px solid #fde68a',
+                      padding: '18px 22px',
+                      boxShadow: '0 1px 4px rgba(0,0,0,0.06)'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
+                        <div>
+                          <h3 style={{ margin: 0, fontSize: 15, color: '#0f2d5e' }}>
+                            {demande.professeur_nom}
+                          </h3>
+                          <p style={{ margin: '3px 0 0', fontSize: 12, color: '#64748b' }}>
+                            Matricule {demande.matricule || '—'} · demandé le{' '}
+                            {demande.date_demande
+                              ? new Date(demande.date_demande).toLocaleDateString('fr-MA')
+                              : '—'}
+                          </p>
+                        </div>
+                        <span style={{
+                          alignSelf: 'flex-start',
+                          background: '#fef3c7',
+                          color: '#92400e',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          padding: '2px 10px',
+                          borderRadius: 20,
+                          border: '1px solid #fde68a',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          En attente
+                        </span>
+                      </div>
+
+                      <ul style={{ listStyle: 'none', margin: '0 0 12px', padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {changements.length === 0 ? (
+                          <li style={{ fontSize: 12.5, color: '#64748b' }}>
+                            Aucun changement détecté.
+                          </li>
+                        ) : (
+                          changements.map(changement => (
+                            <li key={changement.cle} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12.5 }}>
+                              <span style={{ minWidth: 160, fontWeight: 700, color: '#334155' }}>
+                                {changement.label}
+                              </span>
+                              <span style={{ color: '#b91c1c', textDecoration: 'line-through' }}>
+                                {changement.avant}
+                              </span>
+                              <span style={{ color: '#94a3b8' }}>→</span>
+                              <span style={{ fontWeight: 700, color: '#15803d' }}>
+                                {changement.apres}
+                              </span>
+                            </li>
+                          ))
+                        )}
+                      </ul>
+
+                      {demande.commentaire_formateur && (
+                        <p style={{ margin: '0 0 12px', fontSize: 12.5, color: '#475569' }}>
+                          <strong>Motif :</strong> {demande.commentaire_formateur}
+                        </p>
+                      )}
+
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12.5, color: '#334155' }}>
+                        <span style={{ fontWeight: 600 }}>Commentaire de l'administration (optionnel)</span>
+                        <textarea
+                          rows={2}
+                          value={commentairesDemandes[demande.id] || ''}
+                          onChange={e => setCommentairesDemandes(prev => ({ ...prev, [demande.id]: e.target.value }))}
+                          placeholder="Motif de la décision…"
+                          style={{
+                            border: '1px solid #cbd5e1',
+                            borderRadius: 8,
+                            padding: '7px 10px',
+                            fontFamily: 'inherit',
+                            fontSize: 13,
+                            resize: 'vertical'
+                          }}
+                        />
+                      </label>
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          disabled={enCours}
+                          onClick={() => traiterDemandeProfil(demande, 'refusee')}
+                        >
+                          {enCours ? 'Traitement…' : 'Refuser'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          disabled={enCours}
+                          onClick={() => traiterDemandeProfil(demande, 'approuvee')}
+                        >
+                          {enCours ? 'Traitement…' : 'Approuver'}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+
+              <div style={{
+                background: '#fff',
+                borderRadius: 12,
+                border: '1px solid #e2e8f0',
+                padding: '18px 22px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)'
+              }}>
+                <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#0f2d5e' }}>Historique</h3>
+                {demandesProfilTraitees.length === 0 ? (
+                  <p style={{ margin: 0, fontSize: 12.5, color: '#64748b' }}>
+                    Aucune demande traitée pour le moment.
+                  </p>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                      <thead>
+                        <tr>
+                          {['Formateur', 'Date', 'Statut', 'Modifications', 'Commentaire'].map(label => (
+                            <th key={label} style={{
+                              textAlign: 'left',
+                              padding: '10px 12px',
+                              borderBottom: '1px solid #e2e8f0',
+                              color: '#64748b',
+                              fontSize: 11.5,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.03em'
+                            }}>
+                              {label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {demandesProfilTraitees.map(demande => (
+                          <tr key={demande.id}>
+                            <td style={{ padding: '10px 12px', borderBottom: '1px solid #eef2f7', color: '#0f2d5e', fontWeight: 600 }}>
+                              {demande.professeur_nom}
+                            </td>
+                            <td style={{ padding: '10px 12px', borderBottom: '1px solid #eef2f7', color: '#475569' }}>
+                              {demande.date_traitement
+                                ? new Date(demande.date_traitement).toLocaleDateString('fr-MA')
+                                : '—'}
+                            </td>
+                            <td style={{ padding: '10px 12px', borderBottom: '1px solid #eef2f7' }}>
+                              <span style={{
+                                background: demande.statut === 'approuvee' ? '#dcfce7' : '#fee2e2',
+                                color: demande.statut === 'approuvee' ? '#15803d' : '#b91c1c',
+                                fontSize: 11,
+                                fontWeight: 700,
+                                padding: '2px 9px',
+                                borderRadius: 20
+                              }}>
+                                {STATUTS_DEMANDE_PROFIL[demande.statut] || demande.statut}
+                              </span>
+                            </td>
+                            <td style={{ padding: '10px 12px', borderBottom: '1px solid #eef2f7', color: '#475569', fontSize: 12.5 }}>
+                              {changementsDemandeProfil(demande).map(c => `${c.label} : ${c.avant} → ${c.apres}`).join(' · ') || '—'}
+                            </td>
+                            <td style={{ padding: '10px 12px', borderBottom: '1px solid #eef2f7', color: '#475569', fontSize: 12.5 }}>
+                              {demande.commentaire_admin || '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -4455,7 +5366,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
                 {filteredSallesList.length === 0 ? (
                   <div style={{ gridColumn: '1 / -1', background: '#fff', borderRadius: 12, padding: 48, textAlign: 'center', color: '#94a3b8', border: '1px solid #e2e8f0' }}>
-                    
+
                     <div style={{ fontWeight: 600, fontSize: 15, color: '#475569' }}>Aucune salle trouvée</div>
                     <div style={{ fontSize: 13, marginTop: 4 }}>Modifiez votre filtre ou terme de recherche</div>
                   </div>
@@ -4493,7 +5404,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                         <div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                              
+
                               <div>
                                 <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#0f2d5e' }}>{s.nom}</h3>
                                 <span style={{ fontSize: 12, color: '#64748b' }}>Salle {s.nom}</span>
@@ -5040,8 +5951,8 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                         >
                           <td style={{ padding: '14px 18px', fontWeight: 600, color: '#0f172a' }}>
                             {i.type_cible === 'tous' ? 'Tous les groupes' :
-                             i.type_cible === 'groupe' ? (i.groupe_code || '—') :
-                             (i.professeur_nom || '—')}
+                              i.type_cible === 'groupe' ? (i.groupe_code || '—') :
+                                (i.professeur_nom || '—')}
                           </td>
                           <td style={{ padding: '14px 18px', color: '#475569' }}>
                             {i.type_periode_libelle || i.type_periode}
@@ -5187,6 +6098,19 @@ export default function Dashboard({ role = 'admin', onLogout }) {
         />
       )}
 
+      {nouvelleAffectation && (
+        <NouvelleAffectationModal
+          groupes={groupes}
+          modules={modules}
+          professeurs={professeurs}
+          onClose={() => setNouvelleAffectation(false)}
+          onSave={saved => {
+            handleSaveAffectation(saved)
+            setNouvelleAffectation(false)
+          }}
+        />
+      )}
+
       {deletingAffectation && (
         <DeleteAffectationModal
           affectation={deletingAffectation}
@@ -5220,6 +6144,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
       {moduleModalOpen && (
         <ModuleModal
           module={editingModule}
+          modules={modules}
           typesSalles={typesSalles}
           onClose={() => {
             setModuleModalOpen(false)

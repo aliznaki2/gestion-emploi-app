@@ -1,0 +1,428 @@
+/* ============================================================================
+   InstituteSwitcher — sélecteur d'espace de travail multi-instituts
+   ========================================================================== */
+
+.institute-switcher {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+/* ── Trigger ─────────────────────────────────────────────────────────────── */
+.institute-switcher__trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 11px 7px 8px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #0f172a;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease,
+    transform 0.16s ease;
+}
+
+.institute-switcher__trigger:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+}
+
+.institute-switcher__trigger:focus-visible {
+  outline: none;
+  border-color: #1a5fa8;
+  box-shadow: 0 0 0 3px rgba(26, 95, 168, 0.16);
+}
+
+.institute-switcher__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #1a5fa8, #0f4a8a);
+  color: #ffffff;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.institute-switcher__identity {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.institute-switcher__name {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.institute-switcher__meta {
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.institute-switcher__chevron {
+  display: inline-flex;
+  color: #94a3b8;
+  flex-shrink: 0;
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+
+.institute-switcher__chevron.is-open {
+  transform: rotate(180deg);
+  color: #1a5fa8;
+}
+
+/* ── Dropdown ────────────────────────────────────────────────────────────── */
+.institute-switcher__menu {
+  position: absolute;
+  top: calc(100% + 9px);
+  left: 0;
+  z-index: 1300;
+  display: flex;
+  flex-direction: column;
+  width: 328px;
+  max-width: min(328px, calc(100vw - 32px));
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  box-shadow:
+    0 24px 55px rgba(15, 23, 42, 0.18),
+    0 4px 12px rgba(15, 23, 42, 0.06);
+  padding: 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: instituteMenuIn 0.16s ease both;
+}
+
+.institute-switcher__menu--up {
+  top: auto;
+  bottom: calc(100% + 9px);
+}
+
+.institute-switcher__menu--right {
+  left: auto;
+  right: 0;
+}
+
+@keyframes instituteMenuIn {
+  from { transform: translateY(-6px) scale(0.985); }
+  to   { transform: translateY(0) scale(1); }
+}
+
+.institute-switcher__menu-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 6px;
+  flex-shrink: 0;
+}
+
+.institute-switcher__menu-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: #f1f5f9;
+  color: #1a5fa8;
+  flex-shrink: 0;
+}
+
+.institute-switcher__menu-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.institute-switcher__menu-sub {
+  font-size: 0.66rem;
+  color: #64748b;
+  margin: 0;
+}
+
+.institute-switcher__options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.institute-switcher__option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  transition: background 0.14s ease;
+}
+
+.institute-switcher__option:hover {
+  background: #f8fafc;
+}
+
+.institute-switcher__option.is-selected {
+  background: #eff6ff;
+}
+
+.institute-switcher__option-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--institute-accent, #1a5fa8);
+  background: color-mix(in srgb, var(--institute-accent, #1a5fa8) 12%, #ffffff);
+  border: 1px solid color-mix(in srgb, var(--institute-accent, #1a5fa8) 24%, #ffffff);
+}
+
+.institute-switcher__option-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.25;
+}
+
+.institute-switcher__option-name {
+  font-size: 0.79rem;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.institute-switcher__option-meta {
+  font-size: 0.66rem;
+  color: #64748b;
+}
+
+.institute-switcher__option-check {
+  display: inline-flex;
+  color: #1a5fa8;
+  flex-shrink: 0;
+}
+
+.institute-switcher__foot {
+  margin: 6px 4px 2px;
+  padding-top: 9px;
+  border-top: 1px solid #f1f5f9;
+  font-size: 0.64rem;
+  line-height: 1.4;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+/* ── Emplacement libre : instituts à venir ───────────────────────────────── */
+.institute-switcher__empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 11px;
+  background: #f8fafc;
+  flex-shrink: 0;
+}
+
+.institute-switcher__empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  color: #94a3b8;
+}
+
+.institute-switcher__empty-text {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.institute-switcher__empty-title {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #334155;
+}
+
+.institute-switcher__empty-desc {
+  margin: 2px 0 0;
+  font-size: 0.61rem;
+  color: #94a3b8;
+}
+
+.institute-switcher__subscribe {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(26, 95, 168, 0.2);
+  background: #ffffff;
+  color: #1a5fa8;
+  font-size: 0.64rem;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.institute-switcher__subscribe:hover {
+  background: #eff6ff;
+  border-color: rgba(26, 95, 168, 0.4);
+  color: #134882;
+}
+
+
+/* ── Variante sombre (dashboard / sidebar) ───────────────────────────────── */
+.institute-switcher--dark .institute-switcher__trigger {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+.institute-switcher--dark .institute-switcher__trigger:hover {
+  background: rgba(255, 255, 255, 0.13);
+  border-color: rgba(255, 255, 255, 0.24);
+  box-shadow: none;
+}
+
+.institute-switcher--dark .institute-switcher__trigger:focus-visible {
+  border-color: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.14);
+}
+
+.institute-switcher--dark .institute-switcher__mark {
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.institute-switcher--dark .institute-switcher__name {
+  color: #ffffff;
+}
+
+.institute-switcher--dark .institute-switcher__meta {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.institute-switcher--dark .institute-switcher__chevron {
+  color: rgba(255, 255, 255, 0.68);
+}
+
+.institute-switcher--dark .institute-switcher__empty {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.institute-switcher--dark .institute-switcher__empty-icon {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.institute-switcher--dark .institute-switcher__empty-title {
+  color: #e2e8f0;
+}
+
+.institute-switcher--dark .institute-switcher__empty-desc {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.institute-switcher--dark .institute-switcher__subscribe {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.24);
+  color: #ffffff;
+}
+
+.institute-switcher--dark .institute-switcher__subscribe:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.38);
+}
+
+
+/* ── Variante compacte (navbar) ──────────────────────────────────────────── */
+.institute-switcher--compact .institute-switcher__trigger {
+  padding: 5px 9px 5px 6px;
+}
+
+.institute-switcher--compact .institute-switcher__mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  font-size: 0.6rem;
+}
+
+.institute-switcher--compact .institute-switcher__name {
+  font-size: 0.75rem;
+  max-width: 130px;
+}
+
+.institute-switcher--compact .institute-switcher__meta {
+  font-size: 0.6rem;
+  max-width: 130px;
+}
+
+@media (max-width: 520px) {
+  .institute-switcher__menu {
+    max-width: calc(100vw - 28px);
+  }
+  .institute-switcher--compact .institute-switcher__identity {
+    display: none;
+  }
+  .institute-switcher--compact .institute-switcher__trigger {
+    gap: 6px;
+  }
+}
+
+@media (max-height: 720px) {
+  .institute-switcher__options {
+    max-height: 210px;
+  }
+}

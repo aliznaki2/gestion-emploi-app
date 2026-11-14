@@ -36,7 +36,15 @@
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.05);
   --shadow-md: 0 4px 16px rgba(0,0,0,0.06);
   --shadow-lg: 0 10px 30px rgba(0,0,0,0.08);
+  --shadow-xl: 0 24px 55px rgba(15, 23, 42, 0.16);
   --shadow-blue: 0 4px 14px rgba(26, 95, 168, 0.25);
+
+  /* Surfaces & gradients de la marque */
+  --surface:       #ffffff;
+  --surface-muted: #f8fafc;
+  --gradient-brand: linear-gradient(135deg, #0f2d5e 0%, #1a5fa8 55%, #2575c9 100%);
+  --gradient-brand-soft: linear-gradient(135deg, rgba(26,95,168,0.1) 0%, rgba(37,117,201,0.04) 100%);
+  --ring-brand: 0 0 0 3px rgba(26, 95, 168, 0.16);
 
   --radius-sm:   8px;
   --radius-md:   12px;
@@ -66,12 +74,17 @@ a   { text-decoration: none; color: inherit; }
 ul  { list-style: none; }
 button { cursor: pointer; border: none; background: none; font-family: inherit; }
 
+:focus-visible {
+  outline: 2px solid var(--primary-light);
+  outline-offset: 2px;
+}
+
 /* ============================================
    UTILITIES
    ============================================ */
 .container {
   width: 100%;
-  max-width: 1200px;
+  max-width: 1240px;
   margin: 0 auto;
   padding: 0 24px;
 }

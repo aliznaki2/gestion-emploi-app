@@ -189,6 +189,15 @@ class Module(models.Model):
         verbose_name=_("Heures par semaine (par groupe)"),
         help_text=_("Volume horaire hebdomadaire planifié pour ce module, pour chaque groupe."),
     )
+    prerequis = models.ManyToManyField(
+        'self',
+        symmetrical=False,
+        blank=True,
+        related_name='debloque',
+        verbose_name=_("Modules prérequis"),
+        help_text=_("Modules qui doivent être terminés avant de commencer "
+                    "celui-ci. Le moteur respecte cet ordre par groupe."),
+    )
     types_salles_compatibles = models.ManyToManyField(
         TypeSalle,
         blank=True,
@@ -290,6 +299,8 @@ class Professeur(models.Model):
         related_name='professeur',
         verbose_name=_("Compte Utilisateur lié"),
     )
+    email = models.EmailField(blank=True, default='', verbose_name=_("Email"))
+    telephone = models.CharField(max_length=20, blank=True, default='', verbose_name=_("Téléphone"))
     statut = models.CharField(max_length=20, choices=STATUT_CHOICES, default=STATUT_PERMANENT, verbose_name=_("Statut"))
     heures_max_semaine = models.DecimalField(max_digits=4, decimal_places=1, default=30.0, verbose_name=_("Heures Max / Semaine"))
     taux_presence = models.FloatField(default=1.0, verbose_name=_("Taux de présence (0 à 1)"))
@@ -416,6 +427,50 @@ class Disponibilite(models.Model):
         return f"{self.professeur.nom_complet} @ {self.creneau} : {self.get_etat_display()}"
 
 
+# ─── 8 bis. Demandes de modification de profil ────────────────────────────────
+class DemandeModificationProfil(models.Model):
+    """Demande de modification de la fiche formateur, validée par l'administration."""
+    STATUT_EN_ATTENTE = 'en_attente'
+    STATUT_APPROUVEE = 'approuvee'
+    STATUT_REFUSEE = 'refusee'
+
+    STATUT_CHOICES = [
+        (STATUT_EN_ATTENTE, 'En attente'),
+        (STATUT_APPROUVEE, 'Approuvée'),
+        (STATUT_REFUSEE, 'Refusée'),
+    ]
+
+    professeur = models.ForeignKey(
+        Professeur,
+        on_delete=models.CASCADE,
+        related_name='demandes_profil',
+        verbose_name=_("Formateur"),
+    )
+    donnees = models.JSONField(default=dict, verbose_name=_("Modifications demandées"))
+    donnees_avant = models.JSONField(default=dict, verbose_name=_("Valeurs avant demande"))
+    statut = models.CharField(max_length=20, choices=STATUT_CHOICES, default=STATUT_EN_ATTENTE, verbose_name=_("Statut"))
+    commentaire_formateur = models.TextField(blank=True, default='', verbose_name=_("Commentaire du formateur"))
+    commentaire_admin = models.TextField(blank=True, default='', verbose_name=_("Commentaire de l'administration"))
+    date_demande = models.DateTimeField(auto_now_add=True, verbose_name=_("Date de la demande"))
+    date_traitement = models.DateTimeField(null=True, blank=True, verbose_name=_("Date de traitement"))
+    traite_par = models.ForeignKey(
+        Utilisateur,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='demandes_profil_traitees',
+        verbose_name=_("Traitée par"),
+    )
+
+    class Meta:
+        verbose_name = _("Demande de modification de profil")
+        verbose_name_plural = _("Demandes de modification de profil")
+        ordering = ['-date_demande']
+
+    def __str__(self):
+        return f"{self.professeur.nom_complet} — {self.get_statut_display()}"
+
+
 # ─── 9. Unités d'Enseignement & Volumes Horaires ──────────────────────────────
 class UniteEnseignement(models.Model):
     """
@@ -496,15 +551,34 @@ class UniteProfesseur(models.Model):
 
 
 class AffectationEnseignement(models.Model):
-    """Affectation d'un formateur à un module pour un groupe donné.
+    """Besoin d'enseignement pour un couple (module, groupe).
 
-    Chaque formateur peut enseigner plusieurs modules, et pour chaque module
-    il peut être affecté à un ou plusieurs groupes. C'est cette affectation
-    qui pilote le choix du formateur lors de la génération.
+    Un besoin existe même lorsqu'aucun formateur n'est encore désigné : il peut
+    être « à pourvoir » ou correspondre à un vacataire resté à recruter. Dès
+    qu'un formateur est nommé, le besoin devient « affecté ». Le solveur utilise
+    ces lignes pour savoir qui peut assurer le module auprès du groupe ; sans
+    formateur, les séances sont tout de même planifiées.
+
+    Plusieurs formateurs peuvent co-enseigner un même couple, mais un seul
+    besoin ouvert (sans formateur) est autorisé par couple.
     """
+    STATUT_AFFECTE = 'affecte'
+    STATUT_A_POURVOIR = 'a_pourvoir'
+    STATUT_VACATAIRE = 'vacataire_a_recruter'
+
+    STATUT_CHOICES = [
+        (STATUT_AFFECTE, 'Formateur affecté'),
+        (STATUT_A_POURVOIR, 'Poste à pourvoir'),
+        (STATUT_VACATAIRE, 'Vacataire à recruter'),
+    ]
+
+    STATUTS_SANS_FORMATEUR = (STATUT_A_POURVOIR, STATUT_VACATAIRE)
+
     professeur = models.ForeignKey(
         Professeur,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name='affectations_enseignement',
         verbose_name=_("Formateur"),
     )
@@ -520,19 +594,53 @@ class AffectationEnseignement(models.Model):
         related_name='affectations_enseignement',
         verbose_name=_("Groupe"),
     )
+    statut = models.CharField(
+        max_length=30,
+        choices=STATUT_CHOICES,
+        default=STATUT_A_POURVOIR,
+        verbose_name=_("Statut du besoin"),
+    )
+    notes = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        verbose_name=_("Notes / commentaire"),
+    )
+    date_modification = models.DateTimeField(auto_now=True, verbose_name=_("Dernière modification"))
 
     class Meta:
-        verbose_name = _("Affectation Module / Groupe")
-        verbose_name_plural = _("Affectations Module / Groupe")
+        verbose_name = _("Besoin d'enseignement (module / groupe)")
+        verbose_name_plural = _("Besoins d'enseignement (module / groupe)")
+        ordering = ['groupe__code', 'module__code']
         constraints = [
             models.UniqueConstraint(
                 fields=['professeur', 'module', 'groupe'],
+                condition=models.Q(professeur__isnull=False),
                 name='unique_professeur_module_groupe',
-            )
+            ),
+            models.UniqueConstraint(
+                fields=['module', 'groupe'],
+                condition=models.Q(professeur__isnull=True),
+                name='unique_besoin_ouvert_module_groupe',
+            ),
         ]
 
     def __str__(self):
-        return f"{self.professeur.nom_complet} -> {self.module.code} / {self.groupe.code}"
+        if self.professeur_id:
+            return f"{self.professeur.nom_complet} -> {self.module.code} / {self.groupe.code}"
+        return f"À pourvoir : {self.module.code} / {self.groupe.code} ({self.get_statut_display()})"
+
+    @property
+    def est_pourvu(self) -> bool:
+        return self.professeur_id is not None
+
+    def save(self, *args, **kwargs):
+        # Le statut découle de la présence effective d'un formateur.
+        if self.professeur_id:
+            self.statut = self.STATUT_AFFECTE
+        elif self.statut not in self.STATUTS_SANS_FORMATEUR:
+            self.statut = self.STATUT_A_POURVOIR
+        super().save(*args, **kwargs)
 
 
 class Indisponibilite(models.Model):
@@ -660,6 +768,7 @@ class TacheGeneration(models.Model):
     message = models.TextField(blank=True, verbose_name=_("Message / Diagnostic"))
     temps_resolution_ms = models.IntegerField(default=0, verbose_name=_("Temps de résolution (ms)"))
     score_penalite = models.IntegerField(default=0, verbose_name=_("Pénalité Objectif"))
+    resume = models.JSONField(default=dict, blank=True, verbose_name=_("Résumé de génération"))
     cree_par = models.ForeignKey(Utilisateur, on_delete=models.SET_NULL, null=True, blank=True)
     date_debut = models.DateTimeField(auto_now_add=True)
     date_fin = models.DateTimeField(null=True, blank=True)

@@ -60,18 +60,33 @@
 }
 
 .navbar__logo-name {
-  font-size: 1.02rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 1.06rem;
   font-weight: 800;
   color: #1a5fa8;
   letter-spacing: -0.01em;
   line-height: 1.15;
 }
 
+.navbar__logo-pill {
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #1a5fa8;
+  background: rgba(26, 95, 168, 0.1);
+  border: 1px solid rgba(26, 95, 168, 0.18);
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+
 .navbar__logo-sub {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 600;
   color: #64748b;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.03em;
   white-space: nowrap;
 }
 
@@ -103,6 +118,7 @@
 .navbar__right {
   display: flex;
   align-items: center;
+  gap: 10px;
 }
 
 .navbar__cta--connexion {
@@ -131,6 +147,29 @@
 
 .navbar__cta--connexion svg {
   stroke-width: 2.2;
+}
+
+/* ── Abonnement Button ── */
+.navbar__cta--subscribe {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: #ffffff;
+  color: #1a5fa8;
+  font-size: 0.86rem;
+  font-weight: 700;
+  padding: 8px 17px;
+  border-radius: var(--radius-full);
+  border: 1.5px solid rgba(26, 95, 168, 0.28);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.navbar__cta--subscribe:hover {
+  background: #eff6ff;
+  border-color: rgba(26, 95, 168, 0.5);
+  transform: translateY(-1px);
 }
 
 /* ── Hamburger ── */
@@ -181,6 +220,8 @@
   top: 100%;
   left: 0;
   right: 0;
+  max-height: calc(100vh - 62px);
+  overflow-y: auto;
   background: #ffffff;
   border-bottom: 1px solid #e2e8f0;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
@@ -230,6 +271,29 @@
   margin-top: 6px;
 }
 
+.navbar__mobile-subscribe-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 11px;
+  margin-top: 9px;
+  background: #ffffff;
+  color: #1a5fa8;
+  font-size: 0.92rem;
+  font-weight: 700;
+  border-radius: var(--radius-md);
+  border: 1.5px solid rgba(26, 95, 168, 0.3);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.navbar__mobile-subscribe-btn:hover {
+  background: #eff6ff;
+  border-color: rgba(26, 95, 168, 0.5);
+}
+
 .navbar__mobile-bottom {
   display: flex;
   align-items: center;
@@ -242,6 +306,28 @@
   font-size: 0.85rem;
   font-weight: 600;
   color: #64748b;
+}
+
+@media (max-width: 1240px) and (min-width: 901px) {
+  .navbar__inner {
+    gap: 12px;
+  }
+  .navbar__links {
+    gap: 2px;
+  }
+  .navbar__link {
+    padding: 8px 10px;
+    font-size: 0.84rem;
+  }
+  .navbar__cta--subscribe {
+    padding: 8px 12px;
+  }
+}
+
+@media (max-width: 1080px) and (min-width: 901px) {
+  .navbar__cta-label {
+    display: none;
+  }
 }
 
 @media (max-width: 900px) {
