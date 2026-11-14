@@ -1,6 +1,7 @@
 """
 Tests unitaires et d'API REST pour les endpoints DRF.
 """
+from unittest import mock
 from django.urls import reverse
 from rest_framework.test import APITestCase
 from rest_framework import status
@@ -35,10 +36,14 @@ class ApiTimetableTestCase(APITestCase):
             'semaine_id': self.semaine_1.id,
             'max_time_seconds': 30,
         }
-        response = self.client.post(url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.data['succes'])
-        self.assertGreater(response.data['nb_seances'], 0)
+        with mock.patch('api.views.threading.Thread') as faux_thread:
+            response = self.client.post(url, data, format='json')
+        faux_thread.return_value.start.assert_called_once()
+        # La génération est asynchrone : l'API accepte la demande (202) et renvoie la tâche
+        # à interroger ; le calcul lui-même est couvert par les tests du solveur.
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertIn('id', response.data)
+        self.assertEqual(response.data['semaine'], self.semaine_1.id)
 
     def test_03_permissions_seances(self):
         """

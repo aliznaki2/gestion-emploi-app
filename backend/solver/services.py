@@ -10,12 +10,13 @@ from collections import defaultdict
 from typing import Optional, Dict, Any, List
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from core.models import (
     Semaine, TacheGeneration, Journal, Seance,
     SeanceGroupe, SeanceProfesseur, Creneau, Salle,
-    Professeur, Disponibilite, Module, Groupe, Utilisateur
+    Professeur, Disponibilite, Module, Groupe, Utilisateur, UniteGroupe
 )
 from .heures import CalculateurHeures
 from .decoupage import DecoupeurSeances
@@ -24,8 +25,24 @@ from .indisponibilites import resoudre_indisponibilites, creneaux_par_jour
 from .donnees import Donnees
 from .passages import PlanificateurPassages
 from .criteres import criteres_par_defaut
+from .parametres import DUREE_SEANCE_H
 
 logger = logging.getLogger(__name__)
+
+
+def unites_fusionnees(semaine, groupes_ids) -> list:
+    """Identifiants des unités fusionnées (``code_fusion``) touchant ces groupes."""
+    from core.models import UniteEnseignement
+    return list(
+        UniteEnseignement.objects.filter(
+            annee_scolaire_id=semaine.annee_scolaire_id,
+            unite_groupes__groupe_id__in=list(groupes_ids),
+        )
+        .exclude(code_fusion__isnull=True)
+        .exclude(code_fusion='')
+        .values_list('id', flat=True)
+        .distinct()
+    )
 
 
 class GenerateurEmploiDuTemps:
@@ -49,6 +66,29 @@ class GenerateurEmploiDuTemps:
             TacheGeneration.objects.filter(pk=tache_id).first() if tache_id else None
         )
 
+    @staticmethod
+    def _est_conservee(seance: Seance, cibles_ids) -> bool:
+        """Une séance est conservée si elle est validée, verrouillée, ou si c'est le
+        brouillon d'un groupe qui n'est pas régénéré (génération ciblée)."""
+        if seance.verrouillee or seance.statut == Seance.STATUT_VALIDE:
+            return True
+        if cibles_ids is None:
+            return False
+        gids = {sg.groupe_id for sg in seance.seance_groupes.all()}
+        return bool(gids) and gids.isdisjoint(cibles_ids)
+
+    def _etendre_aux_groupes_fusionnes(self, groupes_ids) -> set:
+        """Ajoute les groupes qui partagent une unité fusionnée avec un groupe ciblé.
+
+        Une unité fusionnée se planifie pour tous ses groupes à la fois ; en
+        régénérer une partie seulement laisserait l'autre partie sans séance.
+        """
+        ids = set(groupes_ids)
+        unites = unites_fusionnees(self.semaine, ids)
+        for ug in UniteGroupe.objects.filter(unite_id__in=unites):
+            ids.add(ug.groupe_id)
+        return ids
+
     def _log(self, niveau: str, message: str) -> None:
         """Enregistre un événement dans la table Journal."""
         if self.tache:
@@ -65,7 +105,8 @@ class GenerateurEmploiDuTemps:
         0. Calendrier des passages des modules généraux
         1. Calcul des prévisions horaires
         2. Découpage en séances atomiques & blocs
-        3. Optimisation mathématique CP-SAT
+        3. Placement CP-SAT en trois étapes dérivées : emploi des formateurs,
+           puis emploi des stagiaires (dérivé) et emploi des salles
         4. Persistance transactionnelle des séances
         """
         debut_execution = time.time()
@@ -91,6 +132,14 @@ class GenerateurEmploiDuTemps:
             # Filtrage des groupes cibles si spécifiés
             groupes_cibles = None
             if groupes_ids:
+                etendus = self._etendre_aux_groupes_fusionnes(groupes_ids)
+                if len(etendus) > len(set(groupes_ids)):
+                    self._log(
+                        Journal.NIVEAU_INFO,
+                        f"{len(etendus) - len(set(groupes_ids))} groupe(s) ajouté(s) : "
+                        "ils partagent une unité fusionnée avec un groupe ciblé.",
+                    )
+                groupes_ids = sorted(etendus)
                 groupes_cibles = list(Groupe.objects.filter(id__in=groupes_ids, actif=True))
                 self._log(Journal.NIVEAU_INFO, f"{len(groupes_cibles)} groupe(s) ciblé(s) pour la génération.")
 
@@ -178,27 +227,36 @@ class GenerateurEmploiDuTemps:
             )
 
             # ─── Phase 3 : modèle CP-SAT & placement ─────────────────────────
-            self._log(Journal.NIVEAU_INFO, "Phase 3 : Modélisation et résolution CP-SAT (Google OR-Tools).")
+            self._log(Journal.NIVEAU_INFO, "Phase 3 : emploi des formateurs, puis stagiaires et salles (CP-SAT).")
             creneaux = list(Creneau.objects.all().order_by('jour', 'numero_seance'))
             salles = list(Salle.objects.filter(actif=True).select_related('type_salle'))
             professeurs = list(Professeur.objects.filter(actif=True).select_related(
                 'salle_preferee', 'salle_preferee_matin', 'salle_preferee_apm'
             ))
 
-            # Séances conservées (validées ou verrouillées) : occupation des ressources
+            # Séances conservées : occupation des ressources.  Sont conservées les
+            # séances validées ou verrouillées, et — lors d'une génération ciblée —
+            # les brouillons des groupes qui ne sont pas régénérés.
+            cibles_ids = {g.id for g in groupes_cibles} if groupes_cibles is not None else None
             occupations_groupes = set()
             occupations_profs = set()
             occupations_salles = set()
+            charges_conservees: Dict[int, float] = defaultdict(float)
             seances_conservees = Seance.objects.filter(semaine=self.semaine).select_related(
                 'creneau'
-            ).prefetch_related('seance_groupes')
+            ).prefetch_related('seance_groupes', 'seance_professeurs')
             for s in seances_conservees:
-                if not (s.verrouillee or s.statut == Seance.STATUT_VALIDE):
+                if not self._est_conservee(s, cibles_ids):
                     continue
                 if s.salle_id:
                     occupations_salles.add((s.creneau_id, s.salle_id))
-                if s.professeur_id:
-                    occupations_profs.add((s.creneau_id, s.professeur_id))
+                prof_ids = {sp.professeur_id for sp in s.seance_professeurs.all()}
+                if not prof_ids and s.professeur_id:
+                    prof_ids = {s.professeur_id}
+                duree = float(s.creneau.duree_h or DUREE_SEANCE_H)
+                for pid in prof_ids:
+                    occupations_profs.add((s.creneau_id, pid))
+                    charges_conservees[pid] += duree
                 for sg in s.seance_groupes.all():
                     occupations_groupes.add((s.creneau_id, sg.groupe_id))
 
@@ -242,6 +300,7 @@ class GenerateurEmploiDuTemps:
                 occupations_groupes=occupations_groupes,
                 occupations_profs=occupations_profs,
                 occupations_salles=occupations_salles,
+                charges_conservees=dict(charges_conservees),
             )
             for critere in criteres_par_defaut():
                 modele.ajouter_critere(critere)
@@ -251,15 +310,19 @@ class GenerateurEmploiDuTemps:
             # 5. Traitement du résultat du Solver
             if not resultat.succes:
                 self._log(Journal.NIVEAU_ERROR, resultat.message)
+                for alerte in resultat.avertissements[:10]:
+                    self._log(Journal.NIVEAU_WARNING, alerte)
                 resume['phase3'] = {
                     'statut': resultat.statut,
                     'objectif': resultat.score_penalite,
                     'borne': resultat.borne,
                     'seances_placees': 0,
                     'non_placees': len(seances_a_placer),
-                    'heures_non_placees': len(seances_a_placer) * 2.5,
+                    'heures_non_placees': len(seances_a_placer) * DUREE_SEANCE_H,
                     'temps_resolution_ms': resultat.temps_resolution_ms,
                     'message': resultat.message,
+                    'etapes': resultat.etapes,
+                    'diagnostics': resultat.avertissements[:10],
                 }
                 resume.update({
                     'succes': False,
@@ -282,10 +345,12 @@ class GenerateurEmploiDuTemps:
                 }
 
             resume['phase3'] = self._resume_phase3(resultat, seances_a_placer, creneaux)
+            for alerte in resultat.avertissements:
+                self._log(Journal.NIVEAU_WARNING, alerte)
 
             # 6. Persistance des séances en base de données
             self._log(Journal.NIVEAU_INFO, "Phase 4 : Enregistrement des séances et liaisons en base de données.")
-            nb_seances_creees = self._persister_seances(resultat)
+            nb_seances_creees = self._persister_seances(resultat, groupes_cibles_ids=cibles_ids)
 
             resume.update({
                 'succes': True,
@@ -372,12 +437,12 @@ class GenerateurEmploiDuTemps:
                     'plafond': round(plafond, 2),
                 })
 
-        groupes_entre = sum(
-            1 for h in charges_groupes.values()
-            if 30.0 - 1e-6 <= h <= 35.0 + 1e-6
-        )
-        groupes_sous = sum(1 for h in charges_groupes.values() if h < 30.0 - 1e-6)
-        groupes_sur = sum(1 for h in charges_groupes.values() if h > 35.0 + 1e-6)
+        # Cibles hebdomadaires par groupe : celles du calculateur d'heures.
+        mini = CalculateurHeures.OBJECTIF_MIN_HEURES
+        maxi = CalculateurHeures.OBJECTIF_MAX_HEURES
+        groupes_entre = sum(1 for h in charges_groupes.values() if mini - 1e-6 <= h <= maxi + 1e-6)
+        groupes_sous = sum(1 for h in charges_groupes.values() if h < mini - 1e-6)
+        groupes_sur = sum(1 for h in charges_groupes.values() if h > maxi + 1e-6)
 
         return {
             'unites_planifiees': len(previsions),
@@ -385,6 +450,12 @@ class GenerateurEmploiDuTemps:
             'professeurs_surcharges_avant': len(surcharges),
             'professeurs_surcharges_apres': len(surcharges),
             'professeurs_surcharges': surcharges[:50],
+            'objectif_groupe_min_h': mini,
+            'objectif_groupe_max_h': maxi,
+            'groupes_dans_objectif': groupes_entre,
+            'groupes_sous_objectif': groupes_sous,
+            'groupes_au_dessus_objectif': groupes_sur,
+            # Anciennes clés conservées pour le frontend existant.
             'groupes_entre_30_et_35h': groupes_entre,
             'groupes_sous_30h': groupes_sous,
             'groupes_au_dessus_35h': groupes_sur,
@@ -408,63 +479,55 @@ class GenerateurEmploiDuTemps:
         }
 
     def _resume_phase3(self, resultat: ResultatPlacement, seances_a_placer, creneaux) -> Dict[str, Any]:
-        """Synthèse de la phase 3 (placement, heures creuses, journées de 10h)."""
-        creneaux_map = {c.id: c for c in creneaux}
-        occ_groupes: Dict[tuple, set] = defaultdict(set)
-        occ_profs: Dict[tuple, set] = defaultdict(set)
-
-        for sp in resultat.seances_placees:
-            creneau = creneaux_map.get(sp.creneau_id)
-            if creneau is None:
-                continue
-            for gid in sp.groupe_ids:
-                occ_groupes[(gid, creneau.jour)].add(creneau.numero_seance)
-            prof_ids = list(sp.professeur_ids)
-            if not prof_ids and sp.professeur_id:
-                prof_ids = [sp.professeur_id]
-            for pid in prof_ids:
-                occ_profs[(pid, creneau.jour)].add(creneau.numero_seance)
-
-        def _heures_creuses(occupations: Dict[tuple, set]) -> int:
-            trous = 0
-            for slots in occupations.values():
-                # Séance 2 vide entre la 1 et la 3/4.
-                if 1 in slots and (3 in slots or 4 in slots) and 2 not in slots:
-                    trous += 1
-                # Séance 3 vide entre la 1/2 et la 4.
-                if (1 in slots or 2 in slots) and 4 in slots and 3 not in slots:
-                    trous += 1
-            return trous
-
-        journees_10h = sum(1 for slots in occ_groupes.values() if len(slots) >= 4)
+        """Synthèse de la phase 3 : les trois emplois et leurs indicateurs."""
         placees = len(resultat.seances_placees)
         non_placees = max(0, len(seances_a_placer) - placees)
-
+        emplois = resultat.emplois or {}
+        formateurs = emplois.get('formateurs', {})
+        stagiaires = emplois.get('stagiaires', {})
         return {
             'statut': resultat.statut,
             'objectif': resultat.score_penalite,
             'borne': resultat.borne,
             'seances_placees': placees,
             'non_placees': non_placees,
-            'heures_non_placees': round(non_placees * 2.5, 2),
-            'heures_creuses_groupes': _heures_creuses(occ_groupes),
-            'heures_creuses_professeurs': _heures_creuses(occ_profs),
-            'journees_10h': journees_10h,
+            'heures_non_placees': round(non_placees * DUREE_SEANCE_H, 2),
+            # Clés historiques (affichées par le tableau de bord).
+            'heures_creuses_groupes': stagiaires.get('trous', 0),
+            'heures_creuses_professeurs': formateurs.get('trous', 0),
+            'journees_10h': stagiaires.get('journees_10h', 0),
             'temps_resolution_ms': resultat.temps_resolution_ms,
+            # Détail des trois emplois.
+            'emploi_formateurs': formateurs,
+            'emploi_stagiaires': stagiaires,
+            'emploi_salles': emplois.get('salles', {}),
+            'etapes': resultat.etapes,
+            'efm_hors_date': resultat.avertissements,
         }
 
     # ─── Persistance ─────────────────────────────────────────────────────────
     @transaction.atomic
-    def _persister_seances(self, resultat: ResultatPlacement) -> int:
+    def _persister_seances(self, resultat: ResultatPlacement, groupes_cibles_ids=None) -> int:
         """
-        Supprime les anciens brouillons non verrouillés de la semaine et insère les nouvelles séances.
+        Remplace les anciens brouillons modifiables de la semaine par les nouvelles séances.
+
+        Lors d'une génération ciblée (``groupes_cibles_ids``), seuls les brouillons
+        qui concernent les groupes régénérés sont supprimés : ceux des autres
+        groupes sont conservés (ils ont servi d'occupations pendant le calcul).
         """
-        # Suppression des anciens brouillons modifiables
-        Seance.objects.filter(
+        anciens = Seance.objects.filter(
             semaine=self.semaine,
             statut=Seance.STATUT_BROUILLON,
             verrouillee=False,
-        ).delete()
+        )
+        if groupes_cibles_ids is not None:
+            anciens = anciens.filter(
+                Q(seance_groupes__groupe_id__in=list(groupes_cibles_ids))
+                | Q(seance_groupes__isnull=True)
+            )
+        ids = list(anciens.values_list('id', flat=True).distinct())
+        for i in range(0, len(ids), 500):
+            Seance.objects.filter(id__in=ids[i:i + 500]).delete()
 
         seances_a_creer: List[Seance] = []
         prof_ids_par_seance: List[List[int]] = []

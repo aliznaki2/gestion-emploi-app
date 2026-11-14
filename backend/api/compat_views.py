@@ -1759,7 +1759,9 @@ def get_emploi_du_temps_compat(request, semaine_id):
 
     data = []
     for s in seances:
-        first_sg = s.seance_groupes.first()
+        # .all() réutilise le prefetch ; .first() relancerait une requête par séance.
+        groupes_liaisons = list(s.seance_groupes.all())
+        first_sg = groupes_liaisons[0] if groupes_liaisons else None
         filiere = first_sg.groupe.filiere if first_sg else None
 
         data.append({
@@ -1793,7 +1795,7 @@ def get_emploi_du_temps_compat(request, semaine_id):
                     'groupe_code': sg.groupe.code,
                     'annee_etude': sg.groupe.annee_etude,
                 }
-                for sg in s.seance_groupes.all()
+                for sg in groupes_liaisons
             ],
             'professeurs': [
                 {

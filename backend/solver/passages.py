@@ -38,6 +38,11 @@ HEURES_BLOC = 5.0
 CAPACITES_GROUPE = (40, 45, 50, 60)
 CAPACITES_PROF = (30, 35, 40)
 
+# Si aucun calendrier ne tient dans le semestre, on rallonge l'horizon de ces
+# nombres de semaines : les modules qui dépassent la fin du semestre sont alors
+# signalés « en retard » au lieu de faire échouer toute la planification.
+EXTENSIONS_HORIZON = (0, 4, 8, 16)
+
 
 @dataclass
 class PassagePlan:
@@ -116,6 +121,7 @@ class PlanificateurPassages:
         self.horizon = max(1, donnees.n_sem + horizon_supplementaire)
         self.resultat: Optional[ResultatPassages] = None
         self._infos: Dict[int, _InfoUnite] = {}
+        self._extension_courante: Optional[int] = None
 
     # ─── Calcul ──────────────────────────────────────────────────────────────
     def calculer(self, duree_max_s: float = 20.0) -> ResultatPassages:
@@ -130,10 +136,15 @@ class PlanificateurPassages:
             )
             return self.resultat
 
-        self._preparer_infos(unites)
+        self._extension_courante = None
         derniere_tentative = None
 
-        for cap_groupe, cap_prof in self._combinaisons_capacite():
+        for extension, cap_groupe, cap_prof in self._combinaisons_capacite():
+            if extension != self._extension_courante:
+                self.horizon = max(1, self.d.n_sem + extension)
+                self._infos = {}
+                self._preparer_infos(unites)
+                self._extension_courante = extension
             resultat = self._resoudre(
                 unites, cap_groupe, cap_prof, duree_max_s
             )
@@ -166,10 +177,11 @@ class PlanificateurPassages:
         return self.resultat
 
     def _combinaisons_capacite(self):
-        for cap_groupe in CAPACITES_GROUPE:
-            for cap_prof in CAPACITES_PROF:
-                if cap_prof <= cap_groupe:
-                    yield cap_groupe, cap_prof
+        for extension in EXTENSIONS_HORIZON:
+            for cap_groupe in CAPACITES_GROUPE:
+                for cap_prof in CAPACITES_PROF:
+                    if cap_prof <= cap_groupe:
+                        yield extension, cap_groupe, cap_prof
 
     # ─── Préparation des unités ─────────────────────────────────────────────
     def _preparer_infos(self, unites) -> None:
@@ -396,7 +408,7 @@ class PlanificateurPassages:
                 module_code=unite.module.code,
                 debut=depart,
                 duree=duree,
-                retard=max(0, arrivee - H),
+                retard=max(0, arrivee - self.d.n_sem),
                 intensite_h=info.intensite_h,
                 source='calcule',
                 semaine_debut_abs=num_semaine + depart,
