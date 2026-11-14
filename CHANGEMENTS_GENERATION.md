@@ -31,6 +31,17 @@ Poids : `solver/parametres.py`. Le détail des trois emplois est dans `resume['p
 | `/api/emploi-du-temps` : 1 requête SQL par séance (`.first()` sur prefetch) | Utilise le prefetch |
 | 2 tests en échec | Test API adapté au 202 asynchrone ; phase 0 corrigée |
 
+## Panneau admin : les trois emplois
+Onglet « Emploi du temps » du tableau de bord, trois vues dans l'ordre de génération :
+1. **Emploi des formateurs** (vue par défaut) : une ligne par formateur (groupe / module / salle), charge en heures,
+   jours de présence, trous, conflits éventuels.
+2. **Emploi des stagiaires** : la vue par groupe existante.
+3. **Emploi des salles** : une ligne par salle (groupe / module / formateur), taux d'occupation.
+
+Après « Générer l'emploi », un panneau récapitule les trois étapes (statut, temps, indicateurs) et liste les EFM
+qui n'ont pas pu être placés à leur date. Fichiers : `frontend/src/components/Dashboard/EmploiRessources.jsx` (nouveau)
+et `Dashboard.jsx` (modifié).
+
 ## À savoir
 - La passe B est limitée à 5 s (`EmploiFormateurs.BUDGET_MAX_PASSE_B_S`) : ~9 s par semaine
   contre ~2 s avant. Augmentez-la pour de meilleurs emplois de groupes.

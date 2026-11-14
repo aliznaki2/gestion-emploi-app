@@ -3,6 +3,8 @@ import InstituteSwitcher from '../InstituteSwitcher/InstituteSwitcher'
 import { APP_NAME, NETWORK_NAME, useInstitute } from '../../config/branding'
 import './Dashboard.css'
 
+import { EmploiParRessource, PipelineGeneration } from './EmploiRessources'
+
 const API = 'http://localhost:3001/api'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -2668,6 +2670,9 @@ const DASH_NAV = [
 export default function Dashboard({ role = 'admin', onLogout }) {
   const [institute] = useInstitute()
   const [activeNav, setActiveNav] = useState('emploi')
+  // Vue de l'emploi du temps : formateurs (calculé en premier), stagiaires et salles (dérivés)
+  const [emploiVue, setEmploiVue] = useState('formateurs')
+  const [dernierePipeline, setDernierePipeline] = useState(null)
   const [semaines, setSemaines] = useState([])
   const [selectedSemaine, setSelectedSemaine] = useState(null)
   const [seances, setSeances] = useState([])
@@ -2848,6 +2853,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
     try {
       const res = await apiFetch(`${API}/generer/${selectedSemaine.id}`, { method: 'POST' })
       addToast(res.message, 'success')
+      setDernierePipeline({ resume: res.resume, numero: selectedSemaine.numero })
       refreshSeances()
     } catch (e) {
       addToast(e.message, 'error')
@@ -3670,6 +3676,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                   <button className="btn btn-ghost" onClick={nextWeek} disabled={currentWeekIdx <= 0} title="Semaine suivante">Suivant</button>
                 </div>
 
+                {emploiVue === 'stagiaires' && (<>
                 {/* Section filter */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <label>Section :</label>
@@ -3695,6 +3702,8 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                     style={{ width: 190 }}
                   />
                 </div>
+
+                </>)}
 
                 <div style={{ flex: 1 }} />
 
@@ -3760,6 +3769,34 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                 </div>
               </div>
 
+              {/* ── Les trois emplois : formateurs d'abord, stagiaires et salles en découlent ── */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '12px 0 4px' }}>
+                {[
+                  { id: 'formateurs', label: '1 · Emploi des formateurs' },
+                  { id: 'stagiaires', label: '2 · Emploi des stagiaires' },
+                  { id: 'salles', label: '3 · Emploi des salles' },
+                ].map(v => (
+                  <button
+                    key={v.id}
+                    className={`btn ${emploiVue === v.id ? 'btn-primary' : 'btn-ghost'}`}
+                    onClick={() => setEmploiVue(v.id)}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+                <span style={{ fontSize: 12, color: '#64748b' }}>
+                  L'emploi des formateurs est généré en premier ; ceux des stagiaires et des salles en sont dérivés.
+                </span>
+              </div>
+
+              {dernierePipeline && dernierePipeline.numero === selectedSemaine?.numero && (
+                <PipelineGeneration
+                  resume={dernierePipeline.resume}
+                  numeroSemaine={dernierePipeline.numero}
+                  onClose={() => setDernierePipeline(null)}
+                />
+              )}
+
               {/* ── Official Header ── */}
               <div style={{ textAlign: 'center', margin: '16px 0 12px' }}>
                 <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0f2d5e' }}>
@@ -3778,6 +3815,7 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                 )}
               </div>
 
+              {emploiVue === 'stagiaires' && (<>
               {/* ── Notice Admin Edit ── */}
               <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '10px 16px', margin: '14px 0 8px', fontSize: 12.5, color: '#1e40af', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span>
@@ -3980,6 +4018,27 @@ export default function Dashboard({ role = 'admin', onLogout }) {
                     </tbody>
                   </table>
                 </div>
+              )}
+              </>)}
+
+              {emploiVue !== 'stagiaires' && (
+                loadingSeances ? (
+                  <div className="loading-state">
+                    Chargement de l'emploi du temps de la semaine {selectedSemaine?.numero}…
+                  </div>
+                ) : (
+                  <EmploiParRessource
+                    mode={emploiVue === 'formateurs' ? 'formateur' : 'salle'}
+                    seances={seances}
+                    professeurs={professeurs}
+                    salles={salles}
+                    jours={JOURS}
+                    slots={ALL_24_SLOTS}
+                    formatGroupe={formatGroupeDisplay}
+                    formatProf={formatProfDisplay}
+                    onSelectSeance={setEditSeance}
+                  />
+                )
               )}
             </>
           )}
