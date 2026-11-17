@@ -6,6 +6,7 @@ import Footer from './components/Footer/Footer'
 import Login from './components/Login/Login'
 import Dashboard from './components/Dashboard/Dashboard'
 import EspaceFormateur from './components/EspaceFormateur/EspaceFormateur'
+import SuperAdminDashboard from './components/SuperAdminDashboard/SuperAdminDashboard'
 import SubscriptionModal from './components/SubscriptionModal/SubscriptionModal'
 
 const ROLE_STORAGE_KEY = 'gestemploi_role'
@@ -97,6 +98,10 @@ function App() {
   }
 
   if (currentView === 'dashboard') {
+    // Super Admin : dashboard de gestion des établissements
+    if (userRole === 'super_admin') {
+      return <SuperAdminDashboard onLogout={handleLogout} />
+    }
     // Le profil formateur n'a accès à aucune fonction d'administration :
     // son interface dédiée regroupe ses disponibilités et son emploi du temps.
     if (userRole === 'formateur') {

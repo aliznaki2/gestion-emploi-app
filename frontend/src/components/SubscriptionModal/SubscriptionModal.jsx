@@ -28,6 +28,7 @@ const CLOSE_ICON = (
 export default function SubscriptionModal({ onClose }) {
   const [form, setForm] = useState(EMPTY_FORM)
   const [status, setStatus] = useState('idle')
+  const [errorMessage, setErrorMessage] = useState('')
   const firstFieldRef = useRef(null)
   const timerRef = useRef(null)
 
@@ -57,11 +58,27 @@ export default function SubscriptionModal({ onClose }) {
     setForm((current) => ({ ...current, [field]: event.target.value }))
   }
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault()
     if (status === 'sending') return
     setStatus('sending')
-    timerRef.current = window.setTimeout(() => setStatus('sent'), 650)
+    setErrorMessage('')
+
+    try {
+      const res = await fetch('http://localhost:3001/api/superadmin/demandes/soumettre', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Erreur lors de l\'envoi de la demande.')
+      }
+      setStatus('sent')
+    } catch (e) {
+      setErrorMessage(e.message || 'Impossible d\'enregistrer la demande.')
+      setStatus('idle')
+    }
   }
 
   const handleOverlay = (event) => {
@@ -132,6 +149,11 @@ export default function SubscriptionModal({ onClose }) {
             </header>
 
             <form className="subscription-modal__form" onSubmit={handleSubmit}>
+              {errorMessage && (
+                <div style={{ padding: '10px 14px', marginBottom: 14, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#dc2626', fontSize: '13px' }}>
+                  {errorMessage}
+                </div>
+              )}
               <div className="subscription-modal__grid">
                 <label className="subscription-modal__field subscription-modal__field--wide">
                   <span className="subscription-modal__label">Nom de l'institut *</span>

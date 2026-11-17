@@ -8,17 +8,53 @@ from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 
 
+# ─── 0. Établissement (Tenant SaaS) ────────────────────────────────────────────
+class Etablissement(models.Model):
+    """Établissement de formation (tenant SaaS multi-établissement)."""
+    code = models.CharField(max_length=30, unique=True, verbose_name=_("Code"))
+    nom = models.CharField(max_length=150, verbose_name=_("Nom complet"))
+    nom_court = models.CharField(max_length=50, blank=True, default='', verbose_name=_("Nom court"))
+    ville = models.CharField(max_length=100, blank=True, default='', verbose_name=_("Ville"))
+    quartier = models.CharField(max_length=100, blank=True, default='', verbose_name=_("Quartier / District"))
+    adresse = models.TextField(blank=True, default='', verbose_name=_("Adresse"))
+    email = models.EmailField(blank=True, default='', verbose_name=_("Email de contact"))
+    telephone = models.CharField(max_length=20, blank=True, default='', verbose_name=_("Téléphone"))
+    site_web = models.URLField(blank=True, default='', verbose_name=_("Site web"))
+    couleur_accent = models.CharField(max_length=7, default='#1a5fa8', verbose_name=_("Couleur d'accent (hex)"))
+    actif = models.BooleanField(default=True, verbose_name=_("Actif"))
+    suspendu = models.BooleanField(default=False, verbose_name=_("Suspendu"))
+    max_formateurs = models.PositiveIntegerField(default=100, verbose_name=_("Limite formateurs"))
+    max_groupes = models.PositiveIntegerField(default=50, verbose_name=_("Limite groupes"))
+    date_creation = models.DateTimeField(auto_now_add=True, verbose_name=_("Date de création"))
+    date_modification = models.DateTimeField(auto_now=True, verbose_name=_("Dernière modification"))
+
+    class Meta:
+        verbose_name = _("Établissement")
+        verbose_name_plural = _("Établissements")
+        ordering = ['nom']
+
+    def __str__(self):
+        return f"{self.code} - {self.nom}"
+
+    @property
+    def est_accessible(self):
+        """L'établissement est accessible s'il est actif et non suspendu."""
+        return self.actif and not self.suspendu
+
+
 # ─── 1. Utilisateur & Rôles ────────────────────────────────────────────────────
 class Utilisateur(AbstractUser):
     """
     Utilisateur du système avec contrôle des accès basé sur le rôle.
-    Roles: 'admin', 'professeur', 'stagiaire'.
+    Roles: 'super_admin', 'admin', 'professeur', 'stagiaire'.
     """
+    ROLE_SUPER_ADMIN = 'super_admin'
     ROLE_ADMIN = 'admin'
     ROLE_PROFESSEUR = 'professeur'
     ROLE_STAGIAIRE = 'stagiaire'
 
     ROLE_CHOICES = [
+        (ROLE_SUPER_ADMIN, 'Super Administrateur'),
         (ROLE_ADMIN, 'Administrateur / Planificateur'),
         (ROLE_PROFESSEUR, 'Formateur / Professeur'),
         (ROLE_STAGIAIRE, 'Stagiaire / Délégué de Groupe'),
@@ -31,11 +67,23 @@ class Utilisateur(AbstractUser):
         verbose_name=_("Rôle"),
     )
     telephone = models.CharField(max_length=20, blank=True, null=True, verbose_name=_("Téléphone"))
+    etablissement = models.ForeignKey(
+        Etablissement,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='utilisateurs',
+        verbose_name=_("Établissement"),
+        help_text=_("Null pour les super administrateurs (accès global)."),
+    )
 
     class Meta:
         verbose_name = _("Utilisateur")
         verbose_name_plural = _("Utilisateurs")
         ordering = ['last_name', 'first_name']
+
+    def is_super_admin(self) -> bool:
+        return self.role == self.ROLE_SUPER_ADMIN
 
     def is_admin_role(self) -> bool:
         return self.role == self.ROLE_ADMIN or self.is_superuser
@@ -50,6 +98,10 @@ class Utilisateur(AbstractUser):
 # ─── 2. Secteur, Filière & Groupe ──────────────────────────────────────────────
 class Secteur(models.Model):
     """Secteur de formation (ex: NTIC, AGC, Génie Mécanique)."""
+    etablissement = models.ForeignKey(
+        Etablissement, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='secteurs', verbose_name=_("Établissement"),
+    )
     code = models.CharField(max_length=20, unique=True, verbose_name=_("Code Secteur"))
     intitule = models.CharField(max_length=150, verbose_name=_("Intitulé"))
 
@@ -98,6 +150,10 @@ class Groupe(models.Model):
     ]
 
     code = models.CharField(max_length=30, unique=True, verbose_name=_("Code Groupe"))
+    etablissement = models.ForeignKey(
+        Etablissement, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='groupes', verbose_name=_("Établissement"),
+    )
     filiere = models.ForeignKey(Filiere, on_delete=models.CASCADE, related_name='groupes', verbose_name=_("Filière"))
     annee_etude = models.PositiveSmallIntegerField(default=1, verbose_name=_("Année d'étude (1 ou 2)"))
     effectif = models.PositiveIntegerField(default=25, verbose_name=_("Effectif"))
@@ -131,6 +187,10 @@ class TypeSalle(models.Model):
 
 class Salle(models.Model):
     """Salle physique ou virtuelle de l'établissement."""
+    etablissement = models.ForeignKey(
+        Etablissement, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='salles', verbose_name=_("Établissement"),
+    )
     nom = models.CharField(max_length=50, unique=True, verbose_name=_("Nom / Numéro Salle"))
     type_salle = models.ForeignKey(TypeSalle, on_delete=models.PROTECT, related_name='salles', verbose_name=_("Type de Salle"))
     capacite = models.PositiveIntegerField(default=30, verbose_name=_("Capacité"))
@@ -152,6 +212,10 @@ class Salle(models.Model):
 # ─── 4. Modules ────────────────────────────────────────────────────────────────
 class Module(models.Model):
     """Module de formation (M101, EGTS101, etc.)."""
+    etablissement = models.ForeignKey(
+        Etablissement, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='modules', verbose_name=_("Établissement"),
+    )
     TYPE_TECHNIQUE = 'technique'
     TYPE_GENERAL = 'general'
 
@@ -225,6 +289,10 @@ class Module(models.Model):
 
 # ─── 5. Année Scolaire, Semestre & Semaine ─────────────────────────────────────
 class AnneeScolaire(models.Model):
+    etablissement = models.ForeignKey(
+        Etablissement, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='annees_scolaires', verbose_name=_("Établissement"),
+    )
     libelle = models.CharField(max_length=20, unique=True, verbose_name=_("Libellé (ex: 2025/2026)"))
     date_debut = models.DateField(verbose_name=_("Date de début"))
     date_fin = models.DateField(verbose_name=_("Date de fin"))
@@ -281,6 +349,10 @@ class Semaine(models.Model):
 # ─── 6. Professeur (Formateur) ────────────────────────────────────────────────
 class Professeur(models.Model):
     """Formateur de l'établissement."""
+    etablissement = models.ForeignKey(
+        Etablissement, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='professeurs', verbose_name=_("Établissement"),
+    )
     STATUT_PERMANENT = 'permanent'
     STATUT_VACATAIRE = 'vacataire'
 
@@ -469,6 +541,51 @@ class DemandeModificationProfil(models.Model):
 
     def __str__(self):
         return f"{self.professeur.nom_complet} — {self.get_statut_display()}"
+
+
+# ─── 8 ter. Demandes d'Abonnement Établissements (SaaS) ──────────────────────
+class DemandeAbonnement(models.Model):
+    """
+    Demande d'adhésion / abonnement soumise par un établissement depuis la page d'accueil.
+    Revue, approuvée ou refusée par le Super Administrateur.
+    """
+    STATUT_EN_ATTENTE = 'en_attente'
+    STATUT_APPROUVEE = 'approuvee'
+    STATUT_REFUSEE = 'refusee'
+
+    STATUT_CHOICES = [
+        (STATUT_EN_ATTENTE, 'En attente'),
+        (STATUT_APPROUVEE, 'Approuvée'),
+        (STATUT_REFUSEE, 'Refusée'),
+    ]
+
+    nom_etablissement = models.CharField(max_length=150, verbose_name=_("Nom de l'établissement"))
+    ville = models.CharField(max_length=100, verbose_name=_("Ville"))
+    nom_contact = models.CharField(max_length=100, verbose_name=_("Nom du responsable / contact"))
+    role_contact = models.CharField(max_length=100, blank=True, default='', verbose_name=_("Fonction / Rôle"))
+    email = models.EmailField(verbose_name=_("Email"))
+    telephone = models.CharField(max_length=30, blank=True, default='', verbose_name=_("Téléphone"))
+    message = models.TextField(blank=True, default='', verbose_name=_("Message / Besoins spécifiques"))
+    statut = models.CharField(max_length=20, choices=STATUT_CHOICES, default=STATUT_EN_ATTENTE, verbose_name=_("Statut"))
+    date_demande = models.DateTimeField(auto_now_add=True, verbose_name=_("Date de la demande"))
+    date_traitement = models.DateTimeField(null=True, blank=True, verbose_name=_("Date de traitement"))
+    etablissement_cree = models.ForeignKey(
+        'Etablissement',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='demandes_abonnement',
+        verbose_name=_("Établissement rattaché / créé"),
+    )
+    notes_admin = models.TextField(blank=True, default='', verbose_name=_("Notes internes super admin"))
+
+    class Meta:
+        verbose_name = _("Demande d'abonnement")
+        verbose_name_plural = _("Demandes d'abonnement")
+        ordering = ['-date_demande']
+
+    def __str__(self):
+        return f"{self.nom_etablissement} ({self.ville}) — {self.get_statut_display()}"
 
 
 # ─── 9. Unités d'Enseignement & Volumes Horaires ──────────────────────────────
@@ -911,3 +1028,41 @@ class SeanceProfesseur(models.Model):
     def __str__(self):
         return f"P:{self.professeur.nom_complet} - S{self.semaine.numero} - {self.creneau}"
 
+
+
+# ─── 13. Demande d'Abonnement (SaaS Multi-Tenant) ─────────────────────────────
+class DemandeAbonnement(models.Model):
+    """Demande d'adhésion / abonnement soumise depuis la page d'accueil."""
+    STATUT_EN_ATTENTE = 'en_attente'
+    STATUT_APPROUVEE = 'approuvee'
+    STATUT_REFUSEE = 'refusee'
+
+    STATUT_CHOICES = [
+        (STATUT_EN_ATTENTE, 'En attente'),
+        (STATUT_APPROUVEE, 'Approuvée'),
+        (STATUT_REFUSEE, 'Refusée'),
+    ]
+
+    nom_etablissement = models.CharField(max_length=150, verbose_name=_("Nom de l'établissement"))
+    ville = models.CharField(max_length=100, verbose_name=_("Ville"))
+    nom_contact = models.CharField(max_length=120, verbose_name=_("Nom du responsable / contact"))
+    role_contact = models.CharField(max_length=100, blank=True, default='', verbose_name=_("Fonction / Rôle"))
+    email = models.EmailField(verbose_name=_("Email"))
+    telephone = models.CharField(max_length=30, blank=True, default='', verbose_name=_("Téléphone"))
+    message = models.TextField(blank=True, default='', verbose_name=_("Message / Besoins spécifiques"))
+    statut = models.CharField(max_length=20, choices=STATUT_CHOICES, default=STATUT_EN_ATTENTE, verbose_name=_("Statut"))
+    date_demande = models.DateTimeField(auto_now_add=True, verbose_name=_("Date de la demande"))
+    date_traitement = models.DateTimeField(null=True, blank=True, verbose_name=_("Date de traitement"))
+    notes_admin = models.TextField(blank=True, default='', verbose_name=_("Notes internes super admin"))
+    etablissement_cree = models.ForeignKey(
+        Etablissement, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='demandes_abonnement', verbose_name=_("Établissement créé")
+    )
+
+    class Meta:
+        verbose_name = _("Demande d'abonnement")
+        verbose_name_plural = _("Demandes d'abonnement")
+        ordering = ['-date_demande']
+
+    def __str__(self):
+        return f"{self.nom_etablissement} ({self.ville}) - {self.get_statut_display()}"

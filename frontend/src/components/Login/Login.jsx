@@ -11,7 +11,7 @@ const ASIDE_POINTS = [
 
 export default function Login({ onBackHome, onLoginSuccess }) {
   const [institute] = useInstitute()
-  const [role, setRole] = useState('admin') // 'admin' | 'formateur'
+  const [role, setRole] = useState('admin') // 'super_admin' | 'admin' | 'formateur'
   const [identifier, setIdentifier] = useState('admin@ofppt-ntic.ma')
   const [password, setPassword] = useState('••••••••••')
   const [showPassword, setShowPassword] = useState(false)
@@ -24,7 +24,10 @@ export default function Login({ onBackHome, onLoginSuccess }) {
     setRole(newRole)
     setErrorMsg('')
     setAuthSuccess(false)
-    if (newRole === 'admin') {
+    if (newRole === 'super_admin') {
+      setIdentifier('superadmin')
+      setPassword('superadmin123')
+    } else if (newRole === 'admin') {
       setIdentifier('admin@ofppt-ntic.ma')
       setPassword('Admin2026*')
     } else {
@@ -145,8 +148,18 @@ export default function Login({ onBackHome, onLoginSuccess }) {
               </div>
             </div>
 
-            {/* Profile Tabs (Administration and Formateur only) */}
+            {/* Profile Tabs */}
             <div className="login-role-tabs" role="tablist" aria-label="Profil de connexion">
+              <button
+                type="button"
+                className={`login-role-tab ${role === 'super_admin' ? 'active' : ''}`}
+                onClick={() => handleRoleChange('super_admin')}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                </svg>
+                Super Admin
+              </button>
               <button
                 type="button"
                 className={`login-role-tab ${role === 'admin' ? 'active' : ''}`}
@@ -191,7 +204,7 @@ export default function Login({ onBackHome, onLoginSuccess }) {
                 </div>
                 <h3>Connexion réussie !</h3>
                 <p>
-                  Bienvenue sur votre espace <strong>{role === 'admin' ? 'Administrateur' : 'Formateur'}</strong>.
+                  Bienvenue sur votre espace <strong>{role === 'super_admin' ? 'Super Administrateur' : role === 'admin' ? 'Administrateur' : 'Formateur'}</strong>.
                 </p>
                 <div className="login-success-info">
                   <span>Identifiant : {identifier}</span>
@@ -211,7 +224,9 @@ export default function Login({ onBackHome, onLoginSuccess }) {
                 {/* Identifier Input */}
                 <div className="form-group">
                   <label htmlFor="user-id" className="form-label">
-                    {role === 'admin'
+                    {role === 'super_admin'
+                      ? 'Nom d\'utilisateur super admin'
+                      : role === 'admin'
                       ? 'Adresse e-mail administrateur'
                       : 'Adresse e-mail formateur'}
                   </label>
@@ -224,11 +239,13 @@ export default function Login({ onBackHome, onLoginSuccess }) {
                     </span>
                     <input
                       id="user-id"
-                      type="email"
+                      type={role === 'super_admin' ? 'text' : 'email'}
                       value={identifier}
                       onChange={(e) => setIdentifier(e.target.value)}
                       placeholder={
-                        role === 'admin'
+                        role === 'super_admin'
+                          ? 'ex: superadmin'
+                          : role === 'admin'
                           ? 'ex: admin@ofppt.ma'
                           : 'ex: nom.prenom@ofppt.ma'
                       }
@@ -324,7 +341,7 @@ export default function Login({ onBackHome, onLoginSuccess }) {
                         <polyline points="10 17 15 12 10 7" />
                         <line x1="15" y1="12" x2="3" y2="12" />
                       </svg>
-                      Se connecter en tant que {role === 'admin' ? 'Administrateur' : 'Formateur'}
+                      Se connecter en tant que {role === 'super_admin' ? 'Super Admin' : role === 'admin' ? 'Administrateur' : 'Formateur'}
                     </>
                   )}
                 </button>
@@ -333,6 +350,13 @@ export default function Login({ onBackHome, onLoginSuccess }) {
                 <div className="login-demo-helper">
                   <span className="demo-helper-title">Comptes de démonstration pré-configurés :</span>
                   <div className="demo-helper-btns">
+                    <button
+                      type="button"
+                      className={`demo-pill ${role === 'super_admin' ? 'demo-pill--active' : ''}`}
+                      onClick={() => handleRoleChange('super_admin')}
+                    >
+                      Super Admin
+                    </button>
                     <button
                       type="button"
                       className={`demo-pill ${role === 'admin' ? 'demo-pill--active' : ''}`}
