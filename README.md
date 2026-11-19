@@ -154,6 +154,8 @@ python app.py
 
 Dans un second terminal :
 
+
+
 ```bash
 # 1. Se positionner dans le dossier frontend
 cd frontend
